@@ -31,6 +31,10 @@ def removeContent(data, key=""):
             return "photos_and_videos/blank.jpg"
         elif key == "url":
             return "https://www.google.com"
+        elif key == "reaction":
+            return data
+        elif len(data) > 0:
+            return data[0]
         return ""
     elif data_type == "float":
         return 0.0
