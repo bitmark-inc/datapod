@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/datapod/data-parser/schema/facebook"
-	"github.com/datapod/data-parser/storage"
 	"os"
 	"regexp"
+	"strings"
+
+	"github.com/datapod/data-parser/schema/facebook"
+	"github.com/datapod/data-parser/storage"
 )
 
 var patterns = []facebook.Pattern{
@@ -18,9 +20,12 @@ var patterns = []facebook.Pattern{
 func main() {
 	workingDir := os.Args[1]
 
-	fs := &storage.LocalFileSystem{}
+	fs := storage.NewS3FileSystem()
 	for _, pattern := range patterns {
-		files := pattern.SelectFiles(fs, workingDir)
+		files, err := pattern.SelectFiles(fs, workingDir)
+		if err != nil {
+			panic(err)
+		}
 		for _, file := range files {
 			data, err := fs.ReadFile(file)
 			if err != nil {
@@ -28,7 +33,9 @@ func main() {
 			}
 
 			if err := pattern.Validate(data); err != nil {
-				panic(err)
+				errors := strings.Split(err.Error(), "\n")
+				fmt.Println(workingDir, files, errors[0])
+				continue
 			}
 
 			switch pattern.Name {

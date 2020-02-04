@@ -2,6 +2,7 @@ package facebook
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,18 +18,22 @@ type Pattern struct {
 	Schema   *gojsonschema.Schema
 }
 
-func (p *Pattern) SelectFiles(fs storage.FileSystem, parentDir string) []string {
+func (p *Pattern) SelectFiles(fs storage.FileSystem, parentDir string) ([]string, error) {
 	targetedFiles := make([]string, 0)
 
 	childDir := filepath.Join(parentDir, p.Location)
-	for _, name := range fs.ListFileNames(childDir) {
+	names, err := fs.ListFileNames(childDir)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list file names under directory %s: %s", parentDir, err)
+	}
+	for _, name := range names {
 		if p.Regexp.MatchString(name) {
 			filename := filepath.Join(childDir, name)
 			targetedFiles = append(targetedFiles, filename)
 		}
 	}
 
-	return targetedFiles
+	return targetedFiles, nil
 }
 
 func (p *Pattern) Validate(data []byte) error {
