@@ -3,15 +3,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"regexp"
-
 	"github.com/datapod/data-parser/schema/facebook"
 	"github.com/datapod/data-parser/storage"
+	"os"
+	"regexp"
 )
 
 var patterns = []facebook.Pattern{
 	{Name: "posts", Location: "posts", Regexp: regexp.MustCompile("your_posts(?P<index>_[0-9]+).json"), Schema: facebook.PostArraySchemaLoader()},
+	{Name: "comments", Location: "comments", Regexp: regexp.MustCompile("comments.json"), Schema: facebook.CommentArraySchemaLoader()},
 }
 
 func main() {
@@ -35,6 +35,12 @@ func main() {
 				rawPosts := make([]*facebook.RawPost, 0)
 				json.Unmarshal(data, &rawPosts)
 				fmt.Println(len(rawPosts))
+			case "comments":
+				rawComments := &facebook.RawComment{}
+				err := json.Unmarshal(data, &rawComments)
+				if nil != err {
+					fmt.Printf("json unmarshal with error: %s\n", err)
+				}
 			}
 		}
 	}
