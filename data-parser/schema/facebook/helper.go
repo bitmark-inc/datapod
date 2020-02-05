@@ -22,5 +22,5 @@ func dateOfTime(t time.Time) string {
 
 // timestamp + id, id starts from 0
 func tableForeignKey(timestamp, offset int) int64 {
-	return int64(timestamp)*1_000_000 + int64(offset)
+	return int64(timestamp)*1000000 + int64(offset)
 }
