@@ -56,7 +56,7 @@ type CommentORM struct {
 	Comment     string
 	Date        string
 	Weekday     int
-	DataOwnerID string
+	DataOwnerID string `gorm:"column:data_owner_id"`
 }
 
 func (c RawComment) Write(db *gorm.DB) {
@@ -64,7 +64,7 @@ func (c RawComment) Write(db *gorm.DB) {
 		tmp := comment.Data[0].Comment
 		author, err := tmp.Author.String()
 		if nil != err {
-			fmt.Printf("convert mojibakestring with error: %s", err)
+			fmt.Printf("convert comment author with error: %s", err)
 		}
 
 		t := time.Unix(int64(comment.Timestamp), 0)
