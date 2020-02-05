@@ -63,8 +63,12 @@ func main() {
 			case "posts":
 				rawPosts := facebook.RawPosts{Items: make([]*facebook.RawPost, 0)}
 				json.Unmarshal(data, &rawPosts.Items)
-				posts := rawPosts.ORM(dataOwner, &postID, &postMediaID, &placeID)
-				for _, p := range posts {
+				posts, complexPosts := rawPosts.ORM(dataOwner, &postID, &postMediaID, &placeID)
+				fmt.Println(len(posts), len(complexPosts))
+				if err := gormbulk.BulkInsert(db, posts, 1000); err != nil {
+					panic(err)
+				}
+				for _, p := range complexPosts {
 					if err := db.Create(&p).Error; err != nil {
 						panic(err)
 					}

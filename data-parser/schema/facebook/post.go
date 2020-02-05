@@ -26,7 +26,7 @@ type Post struct {
 	MediaAttached         bool
 	DataOwnerID           string
 	MediaItems            []PostMedia `gorm:"foreignkey:PostID;association_foreignkey:PKID"`
-	Places                []Place     `gorm:"foreignkey:PostID;association_foreignkey:PPID"`
+	Places                []Place     `gorm:"foreignkey:PostID;association_foreignkey:PKID"`
 }
 
 func (Post) TableName() string {
@@ -72,8 +72,9 @@ type RawPosts struct {
 	Items []*RawPost
 }
 
-func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID *int) []Post {
-	posts := make([]Post, 0)
+func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID *int) ([]interface{}, []Post) {
+	posts := make([]interface{}, 0)
+	complexPosts := make([]Post, 0)
 
 	for _, rp := range r.Items {
 		ts := time.Unix(int64(rp.Timestamp), 0)
@@ -85,6 +86,7 @@ func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID 
 			Title:       string(rp.Title),
 			DataOwnerID: dataOwner,
 		}
+		*postID++
 
 		for _, d := range rp.Data {
 			if d.Post != "" {
@@ -95,6 +97,7 @@ func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID 
 			}
 		}
 
+		complex := false
 		for _, a := range rp.Attachments {
 			for _, item := range a.Data {
 				if item.Media != nil {
@@ -105,8 +108,9 @@ func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID 
 						FilenameExtension: filepath.Ext(string(item.Media.URI)),
 						DataOwnerID:       dataOwner,
 					}
-					post.MediaItems = append(post.MediaItems, postMedia)
 					*postMediaID++
+					post.MediaItems = append(post.MediaItems, postMedia)
+					complex = true
 				}
 				if item.ExternalContext != nil {
 					post.ExternalContextName = string(item.ExternalContext.Name)
@@ -126,19 +130,22 @@ func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID 
 						Latitude:    item.Place.Coordinate.Latitude,
 						Longitude:   item.Place.Coordinate.Longitude,
 						DataOwnerID: dataOwner,
-						PostID:      post.PostID,
 					}
 					*placeID++
 					post.Places = append(post.Places, place)
+					complex = true
 				}
 			}
 		}
 
-		*postID++
-		posts = append(posts, post)
+		if complex {
+			complexPosts = append(complexPosts, post)
+		} else {
+			posts = append(posts, post)
+		}
 	}
 
-	return posts
+	return posts, complexPosts
 }
 
 type RawPost struct {
