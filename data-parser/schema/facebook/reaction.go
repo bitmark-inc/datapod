@@ -44,14 +44,14 @@ func ReactionSchemaLoader() *gojsonschema.Schema {
 
 type ReactionORM struct {
 	gorm.Model
-	ReactionID  int64 `gorm:"column:reaction_id"`
+	ReactionID  int64
 	Timestamp   int
 	Date        string
 	Weekday     int
 	Title       string
 	Actor       string
 	Reaction    string
-	DataOwnerID string `gorm:"column:data_owner_id"`
+	DataOwnerID string
 }
 
 func (r RawReaction) ORM(parseTime int) []interface{} {

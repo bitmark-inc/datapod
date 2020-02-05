@@ -50,13 +50,13 @@ func CommentArraySchemaLoader() *gojsonschema.Schema {
 
 type CommentORM struct {
 	gorm.Model
-	CommentsID  int64 `gorm:"column:comments_id"`
+	CommentsID  int64
 	Timestamp   int
 	Author      string
 	Comment     string
 	Date        string
 	Weekday     int
-	DataOwnerID string `gorm:"column:data_owner_id"`
+	DataOwnerID string
 }
 
 func (c RawComment) ORM(parseTime int) []interface{} {
