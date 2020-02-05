@@ -15,6 +15,7 @@ var patterns = []facebook.Pattern{
 	{Name: "posts", Location: "posts", Regexp: regexp.MustCompile("your_posts(?P<index>_[0-9]+).json"), Schema: facebook.PostArraySchemaLoader()},
 	{Name: "comments", Location: "comments", Regexp: regexp.MustCompile("comments.json"), Schema: facebook.CommentArraySchemaLoader()},
 	{Name: "reactions", Location: "likes_and_reactions", Regexp: regexp.MustCompile("posts_and_comments.json"), Schema: facebook.ReactionSchemaLoader()},
+	{Name: "friends", Location: "friends", Regexp: regexp.MustCompile("friends.json"), Schema: facebook.FriendSchemaLoader()},
 }
 
 func main() {
@@ -54,6 +55,12 @@ func main() {
 				err := json.Unmarshal(data, &rawReactions)
 				if nil != err {
 					fmt.Printf("unmarshal reaction with error: %s", err)
+				}
+			case "friends":
+				rawFriends := &facebook.RawFriend{}
+				err := json.Unmarshal(data, &rawFriends)
+				if nil != err {
+					fmt.Printf("unmarshal friend with error: %s", err)
 				}
 			}
 		}
