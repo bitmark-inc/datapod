@@ -1,9 +1,145 @@
 package facebook
 
 import (
+	"path/filepath"
+	"time"
+
 	"github.com/alecthomas/jsonschema"
 	"github.com/xeipuuv/gojsonschema"
 )
+
+type Post struct {
+	PKID                  int `gorm:"column:pk_id" sql:"PRIMARY_KEY;DEFAULT:nextval('posts_post_pk_id_seq')"`
+	PostID                int
+	Timestamp             int
+	UpdateTimestamp       int
+	Date                  string
+	Weekday               int
+	Title                 string
+	Post                  string
+	ExternalContextURL    string
+	ExternalContextSource string
+	ExternalContextName   string
+	EventName             string
+	EventStartTimestamp   int
+	EventEndTimestamp     int
+	MediaAttached         bool
+	DataOwnerID           string
+	MediaItems            []PostMedia `gorm:"foreignkey:PostID;association_foreignkey:PKID"`
+	Places                []Place     `gorm:"foreignkey:PostID;association_foreignkey:PPID"`
+}
+
+func (Post) TableName() string {
+	return "posts_post"
+}
+
+type PostMedia struct {
+	PMID              int
+	MediaURI          string
+	FilenameExtension string
+	DataOwnerID       string
+	PostID            int `gorm:"column:post_id_id"`
+}
+
+func (PostMedia) TableName() string {
+	return "post_media_postmedia"
+}
+
+type Place struct {
+	PPID        int
+	Name        string
+	Address     string
+	Latitude    float64
+	Longitude   float64
+	DataOwnerID string
+	PostID      int `gorm:"column:post_id_id"`
+}
+
+func (Place) TableName() string {
+	return "places_place"
+}
+
+type Tag struct {
+	TFID        int
+	FriendID    int
+	DataOwnerID string
+	PostID      int
+	TagsID      int
+	name        string
+}
+
+type RawPosts struct {
+	Items []*RawPost
+}
+
+func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID *int) []Post {
+	posts := make([]Post, 0)
+
+	for _, rp := range r.Items {
+		ts := time.Unix(int64(rp.Timestamp), 0)
+		post := Post{
+			PostID:      *postID,
+			Timestamp:   rp.Timestamp,
+			Date:        ts.Format("2006-01-02"),
+			Weekday:     int(ts.Weekday()),
+			Title:       string(rp.Title),
+			DataOwnerID: dataOwner,
+		}
+
+		for _, d := range rp.Data {
+			if d.Post != "" {
+				post.Post = string(d.Post)
+			}
+			if d.UpdateTimestamp != 0 {
+				post.UpdateTimestamp = d.UpdateTimestamp
+			}
+		}
+
+		for _, a := range rp.Attachments {
+			for _, item := range a.Data {
+				if item.Media != nil {
+					post.MediaAttached = true
+					postMedia := PostMedia{
+						PMID:              *postMediaID,
+						MediaURI:          string(item.Media.URI),
+						FilenameExtension: filepath.Ext(string(item.Media.URI)),
+						DataOwnerID:       dataOwner,
+					}
+					post.MediaItems = append(post.MediaItems, postMedia)
+					*postMediaID++
+				}
+				if item.ExternalContext != nil {
+					post.ExternalContextName = string(item.ExternalContext.Name)
+					post.ExternalContextSource = string(item.ExternalContext.Source)
+					post.ExternalContextURL = string(item.ExternalContext.URL)
+				}
+				if item.Event != nil {
+					post.EventName = string(item.Event.Name)
+					post.EventStartTimestamp = item.Event.StartTimestamp
+					post.EventEndTimestamp = item.Event.EndTimestamp
+				}
+				if item.Place != nil {
+					place := Place{
+						PPID:        *placeID,
+						Name:        string(item.Place.Name),
+						Address:     string(item.Place.Address),
+						Latitude:    item.Place.Coordinate.Latitude,
+						Longitude:   item.Place.Coordinate.Longitude,
+						DataOwnerID: dataOwner,
+						PostID:      post.PostID,
+					}
+					*placeID++
+					post.Places = append(post.Places, place)
+				}
+			}
+		}
+
+		*postID++
+		posts = append(posts, post)
+	}
+
+	return posts
+}
 
 type RawPost struct {
 	Timestamp   int              `json:"timestamp" jsonschema:"required"`
@@ -30,7 +166,7 @@ type AttachmentData struct {
 	Fundraiser      *Fundraiser      `json:"fundraiser"`
 	Media           *Media           `json:"media"`
 	Note            *Note            `json:"note"`
-	Place           *Place           `json:"place"`
+	Place           *Location        `json:"place"`
 	Poll            *Poll            `json:"poll"`
 	Name            MojibakeString   `json:"name"`
 	Text            MojibakeString   `json:"text"`
@@ -46,12 +182,12 @@ type Event struct {
 	Name            MojibakeString `json:"name" jsonschema:"required"`
 	StartTimestamp  int            `json:"start_timestamp" jsonschema:"required"`
 	EndTimestamp    int            `json:"end_timestamp" jsonschema:"required"`
-	Place           *Place         `json:"place"`
+	Place           *Location      `json:"place"`
 	Description     MojibakeString `json:"description"`
 	CreateTimestamp int            `json:"create_timestamp"`
 }
 
-type Place struct {
+type Location struct {
 	Name       MojibakeString `json:"name"`
 	Coordinate *Coordinate    `json:"coordinate"`
 	Address    MojibakeString `json:"address"`
@@ -128,7 +264,7 @@ type ForSaleItem struct {
 	CreatedTimestamp int            `json:"created_timestamp" jsonschema:"required"`
 	UpdatedTimestamp int            `json:"updated_timestamp" jsonschema:"required"`
 	Marketplace      MojibakeString `json:"marketplace" jsonschema:"required"`
-	Location         *Place         `json:"location" jsonschema:"required"`
+	Location         *Location      `json:"location" jsonschema:"required"`
 	Description      MojibakeString `json:"description" jsonschema:"required"`
 	Category         MojibakeString `json:"category"`
 }

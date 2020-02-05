@@ -7,6 +7,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/jinzhu/gorm"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
+
 	"github.com/datapod/data-parser/schema/facebook"
 	"github.com/datapod/data-parser/storage"
 )
@@ -19,9 +22,25 @@ var patterns = []facebook.Pattern{
 }
 
 func main() {
-	workingDir := os.Args[1]
+	dbURI := os.Args[1]
+	rootDir := os.Args[2]
+	dataOwner := os.Args[3]
 
-	fs := storage.NewS3FileSystem()
+	db, err := gorm.Open("postgres", dbURI)
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	workingDir := fmt.Sprintf("%s/%s", rootDir, dataOwner)
+	fs := &storage.LocalFileSystem{}
+
+	// TODO
+	parseTime := 0
+	postID := parseTime
+	postMediaID := parseTime
+	placeID := parseTime
+
 	for _, pattern := range patterns {
 		files, err := pattern.SelectFiles(fs, workingDir)
 		if err != nil {
@@ -41,9 +60,14 @@ func main() {
 
 			switch pattern.Name {
 			case "posts":
-				rawPosts := make([]*facebook.RawPost, 0)
-				json.Unmarshal(data, &rawPosts)
-				fmt.Println(len(rawPosts))
+				rawPosts := facebook.RawPosts{Items: make([]*facebook.RawPost, 0)}
+				json.Unmarshal(data, &rawPosts.Items)
+				posts := rawPosts.ORM(dataOwner, &postID, &postMediaID, &placeID)
+				for _, p := range posts {
+					if err := db.Create(&p).Error; err != nil {
+						panic(err)
+					}
+				}
 			case "comments":
 				rawComments := &facebook.RawComment{}
 				err := json.Unmarshal(data, &rawComments)
