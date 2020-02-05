@@ -43,7 +43,7 @@ type FriendORM struct {
 	DataOwnerID string
 }
 
-func (r RawFriend) ORM(parseTime int) []interface{} {
+func (r RawFriend) ORM(parseTime int, owner string) []interface{} {
 	idx := 0
 	result := make([]interface{}, 0)
 	for _, friend := range r.Friends {
@@ -56,7 +56,7 @@ func (r RawFriend) ORM(parseTime int) []interface{} {
 			FriendID:    tableForeignKey(parseTime, idx),
 			FriendName:  name,
 			Timestamp:   friend.Timestamp,
-			DataOwnerID: "", // TODO: data owner id
+			DataOwnerID: owner,
 		}
 
 		idx++
