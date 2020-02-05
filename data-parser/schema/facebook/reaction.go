@@ -54,7 +54,7 @@ type ReactionORM struct {
 	DataOwnerID string
 }
 
-func (r RawReaction) ORM(parseTime int) []interface{} {
+func (r RawReaction) ORM(parseTime int, owner string) []interface{} {
 	idx := 0
 	result := make([]interface{}, 0)
 	for _, reaction := range r.Reactions {
@@ -84,7 +84,7 @@ func (r RawReaction) ORM(parseTime int) []interface{} {
 			Title:       title,
 			Actor:       actor,
 			Reaction:    react,
-			DataOwnerID: "", // TODO: data owner id
+			DataOwnerID: owner,
 		}
 
 		idx++

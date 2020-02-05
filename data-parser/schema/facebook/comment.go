@@ -59,7 +59,7 @@ type CommentORM struct {
 	DataOwnerID string
 }
 
-func (c RawComment) ORM(parseTime int) []interface{} {
+func (c RawComment) ORM(parseTime int, owner string) []interface{} {
 	idx := 0
 	result := make([]interface{}, 0)
 	for _, comment := range c.Comments {
@@ -77,7 +77,7 @@ func (c RawComment) ORM(parseTime int) []interface{} {
 			Comment:     tmp.Comment,
 			Date:        dateOfTime(t),
 			Weekday:     weekdayOfTime(t),
-			DataOwnerID: "", // TODO: data owner id
+			DataOwnerID: owner,
 		}
 
 		idx++
