@@ -54,7 +54,7 @@ type ReactionORM struct {
 	DataOwnerID string `gorm:"column:data_owner_id"`
 }
 
-func (r RawReaction) ORM(db *gorm.DB, parseTime int) []interface{} {
+func (r RawReaction) ORM(parseTime int) []interface{} {
 	idx := 0
 	result := make([]interface{}, 0)
 	for _, reaction := range r.Reactions {

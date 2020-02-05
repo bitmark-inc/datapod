@@ -59,7 +59,7 @@ type CommentORM struct {
 	DataOwnerID string `gorm:"column:data_owner_id"`
 }
 
-func (c RawComment) ORM(db *gorm.DB, parseTime int) []interface{} {
+func (c RawComment) ORM(parseTime int) []interface{} {
 	idx := 0
 	result := make([]interface{}, 0)
 	for _, comment := range c.Comments {
