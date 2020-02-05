@@ -44,7 +44,7 @@ func ReactionSchemaLoader() *gojsonschema.Schema {
 
 type ReactionORM struct {
 	gorm.Model
-	ReactionID  int `gorm:"column:reaction_id"`
+	ReactionID  int64 `gorm:"column:reaction_id"`
 	Timestamp   int
 	Date        string
 	Weekday     int
@@ -54,7 +54,8 @@ type ReactionORM struct {
 	DataOwnerID string `gorm:"column:data_owner_id"`
 }
 
-func (r RawReaction) Write(db *gorm.DB) {
+func (r RawReaction) Write(db *gorm.DB, parseTime int) {
+	idx := 0
 	for _, reaction := range r.Reactions {
 		t := time.Unix(int64(reaction.Timestamp), 0)
 
@@ -75,7 +76,7 @@ func (r RawReaction) Write(db *gorm.DB) {
 		}
 
 		orm := ReactionORM{
-			ReactionID:  0, // TODO: reaction id
+			ReactionID:  tableForeignKey(parseTime, idx),
 			Timestamp:   reaction.Timestamp,
 			Date:        dateOfTime(t),
 			Weekday:     weekdayOfTime(t),
@@ -84,6 +85,8 @@ func (r RawReaction) Write(db *gorm.DB) {
 			Reaction:    react,
 			DataOwnerID: "", // TODO: data owner id
 		}
+
+		idx++
 
 		db.Create(orm) // TODO: batch update
 	}

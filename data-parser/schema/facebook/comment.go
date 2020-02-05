@@ -50,7 +50,7 @@ func CommentArraySchemaLoader() *gojsonschema.Schema {
 
 type CommentORM struct {
 	gorm.Model
-	CommentsID  int `gorm:"column:comments_id"`
+	CommentsID  int64 `gorm:"column:comments_id"`
 	Timestamp   int
 	Author      string
 	Comment     string
@@ -59,7 +59,8 @@ type CommentORM struct {
 	DataOwnerID string `gorm:"column:data_owner_id"`
 }
 
-func (c RawComment) Write(db *gorm.DB) {
+func (c RawComment) Write(db *gorm.DB, parseTime int) {
+	idx := 0
 	for _, comment := range c.Comments {
 		tmp := comment.Data[0].Comment
 		author, err := tmp.Author.String()
@@ -69,7 +70,7 @@ func (c RawComment) Write(db *gorm.DB) {
 
 		t := time.Unix(int64(comment.Timestamp), 0)
 		orm := CommentORM{
-			CommentsID:  0, // TODO: comments id
+			CommentsID:  tableForeignKey(parseTime, idx),
 			Timestamp:   comment.Timestamp,
 			Author:      author,
 			Comment:     tmp.Comment,
@@ -77,6 +78,8 @@ func (c RawComment) Write(db *gorm.DB) {
 			Weekday:     weekdayOfTime(t),
 			DataOwnerID: "", // TODO: data owner id
 		}
+
+		idx++
 
 		db.Create(orm) // TODO: batch update
 	}
