@@ -37,10 +37,10 @@ func FriendSchemaLoader() *gojsonschema.Schema {
 
 type FriendORM struct {
 	gorm.Model
-	FriendID    int64 `gorm:"column:friend_id"`
+	FriendID    int64
 	FriendName  string
 	Timestamp   int
-	DataOwnerID string `gorm:"column:data_owner_id"`
+	DataOwnerID string
 }
 
 func (r RawFriend) ORM(parseTime int) []interface{} {
