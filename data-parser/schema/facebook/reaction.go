@@ -54,8 +54,9 @@ type ReactionORM struct {
 	DataOwnerID string `gorm:"column:data_owner_id"`
 }
 
-func (r RawReaction) Write(db *gorm.DB, parseTime int) {
+func (r RawReaction) ORM(db *gorm.DB, parseTime int) []interface{} {
 	idx := 0
+	result := make([]interface{}, 0)
 	for _, reaction := range r.Reactions {
 		t := time.Unix(int64(reaction.Timestamp), 0)
 
@@ -88,6 +89,8 @@ func (r RawReaction) Write(db *gorm.DB, parseTime int) {
 
 		idx++
 
-		db.Create(orm) // TODO: batch update
+		result = append(result, orm)
 	}
+
+	return result
 }

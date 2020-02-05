@@ -59,8 +59,9 @@ type CommentORM struct {
 	DataOwnerID string `gorm:"column:data_owner_id"`
 }
 
-func (c RawComment) Write(db *gorm.DB, parseTime int) {
+func (c RawComment) ORM(db *gorm.DB, parseTime int) []interface{} {
 	idx := 0
+	result := make([]interface{}, 0)
 	for _, comment := range c.Comments {
 		tmp := comment.Data[0].Comment
 		author, err := tmp.Author.String()
@@ -81,6 +82,7 @@ func (c RawComment) Write(db *gorm.DB, parseTime int) {
 
 		idx++
 
-		db.Create(orm) // TODO: batch update
+		result = append(result, orm)
 	}
+	return result
 }
