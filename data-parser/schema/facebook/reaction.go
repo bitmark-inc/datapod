@@ -1,8 +1,11 @@
 package facebook
 
 import (
+	"fmt"
 	"github.com/alecthomas/jsonschema"
+	"github.com/jinzhu/gorm"
 	"github.com/xeipuuv/gojsonschema"
+	"time"
 )
 
 type RawReaction struct {
@@ -37,4 +40,57 @@ func ReactionSchemaLoader() *gojsonschema.Schema {
 	schemaLoader := gojsonschema.NewStringLoader(string(data))
 	schema, _ := gojsonschema.NewSchema(schemaLoader)
 	return schema
+}
+
+type ReactionORM struct {
+	gorm.Model
+	ReactionID  int64
+	Timestamp   int
+	Date        string
+	Weekday     int
+	Title       string
+	Actor       string
+	Reaction    string
+	DataOwnerID string
+}
+
+func (r RawReaction) ORM(parseTime int, owner string) []interface{} {
+	idx := 0
+	result := make([]interface{}, 0)
+	for _, reaction := range r.Reactions {
+		t := time.Unix(int64(reaction.Timestamp), 0)
+
+		title, err := reaction.Title.String()
+		if nil != err {
+			fmt.Printf("convert reaction title with error: %s", err)
+		}
+
+		tmp := reaction.Data[0]
+		actor, err := tmp.Actor.String()
+		if nil != err {
+			fmt.Printf("convert reaction actor with error: %s", err)
+		}
+
+		react, err := tmp.Actor.String()
+		if nil != err {
+			fmt.Printf("convert reaction with error: %s", err)
+		}
+
+		orm := ReactionORM{
+			ReactionID:  tableForeignKey(parseTime, idx),
+			Timestamp:   reaction.Timestamp,
+			Date:        dateOfTime(t),
+			Weekday:     weekdayOfTime(t),
+			Title:       title,
+			Actor:       actor,
+			Reaction:    react,
+			DataOwnerID: owner,
+		}
+
+		idx++
+
+		result = append(result, orm)
+	}
+
+	return result
 }
