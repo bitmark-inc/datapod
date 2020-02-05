@@ -78,6 +78,6 @@ func (c RawComment) Write(db *gorm.DB) {
 			DataOwnerID: "", // TODO: data owner id
 		}
 
-		// db.Create(orm) // TODO: batch update
+		db.Create(orm) // TODO: batch update
 	}
 }
