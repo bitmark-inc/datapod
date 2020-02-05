@@ -1,19 +1,18 @@
 package facebook
 
 import (
-	"fmt"
 	"github.com/alecthomas/jsonschema"
-	"github.com/jinzhu/gorm"
 	"github.com/xeipuuv/gojsonschema"
 )
 
-type RawFriend struct {
+type RawFriends struct {
 	Friends []*Friend `json:"friends" jsonschema:"required"`
 }
 
 type Friend struct {
-	Timestamp int            `json:"timestamp" jsonschema:"required"`
-	Name      MojibakeString `json:"name" jsonschema:"required"`
+	Timestamp   int            `json:"timestamp" jsonschema:"required"`
+	Name        MojibakeString `json:"name" jsonschema:"required"`
+	ContactInfo MojibakeString `json:"contact_info"`
 }
 
 func FriendSchemaLoader() *gojsonschema.Schema {
@@ -22,47 +21,46 @@ func FriendSchemaLoader() *gojsonschema.Schema {
 		ExpandedStruct:             true,
 		RequiredFromJSONSchemaTags: true,
 	}
-	friendSchema := reflector.Reflect(&RawFriend{})
-	friendsSchema := &jsonschema.Schema{Type: &jsonschema.Type{
-		Version: jsonschema.Version,
-		Type:    "object",
-		Items:   friendSchema.Type,
-	}, Definitions: friendSchema.Definitions}
-
-	data, _ := friendsSchema.MarshalJSON()
+	s := reflector.Reflect(&RawFriends{})
+	data, _ := s.MarshalJSON()
 	schemaLoader := gojsonschema.NewStringLoader(string(data))
 	schema, _ := gojsonschema.NewSchema(schemaLoader)
 	return schema
 }
 
 type FriendORM struct {
-	gorm.Model
 	FriendID    int64
 	FriendName  string
 	Timestamp   int
 	DataOwnerID string
 }
 
-func (r RawFriend) ORM(parseTime int, owner string) []interface{} {
+func (FriendORM) TableName() string {
+	return "friends_friend"
+}
+
+// FIX: friends can have the same name
+func (r RawFriends) ORM(parseTime int64, owner string) []interface{} {
 	idx := 0
 	result := make([]interface{}, 0)
-	for _, friend := range r.Friends {
-		name, err := friend.Name.String()
-		if nil != err {
-			fmt.Printf("convert friend title with error: %s", err)
+
+	seen := make(map[string]bool)
+	for _, f := range r.Friends {
+		name := string(f.Name)
+		if seen[name] == true {
+			continue
 		}
+		seen[name] = true
 
 		orm := FriendORM{
 			FriendID:    tableForeignKey(parseTime, idx),
 			FriendName:  name,
-			Timestamp:   friend.Timestamp,
+			Timestamp:   f.Timestamp,
 			DataOwnerID: owner,
 		}
 
-		idx++
-
 		result = append(result, orm)
+		idx++
 	}
-
 	return result
 }

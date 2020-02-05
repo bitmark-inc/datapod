@@ -1,25 +1,28 @@
 package facebook
 
 import (
-	"fmt"
-	"github.com/alecthomas/jsonschema"
-	"github.com/jinzhu/gorm"
-	"github.com/xeipuuv/gojsonschema"
 	"time"
+
+	"github.com/alecthomas/jsonschema"
+	"github.com/xeipuuv/gojsonschema"
 )
 
-type RawReaction struct {
+type RawReactions struct {
 	Reactions []*Reaction `json:"reactions" jsonschema:"required"`
 }
 
 type Reaction struct {
-	Timestamp int            `json:"timestamp" jsonschema:"required"`
-	Title     MojibakeString `json:"title" jsonschema:"required"`
-	Data      []ReactionData `json:"data"`
+	Timestamp int               `json:"timestamp" jsonschema:"required"`
+	Title     MojibakeString    `json:"title" jsonschema:"required"`
+	Data      []ReactionWrapper `json:"data"`
+}
+
+type ReactionWrapper struct {
+	Reaction ReactionData `json:"reaction" jsonschema:"required"`
 }
 
 type ReactionData struct {
-	Reaction string         `json:"string" jsonschema:"required"`
+	Reaction string         `json:"reaction" jsonschema:"required"`
 	Actor    MojibakeString `json:"actor" jsonschema:"required"`
 }
 
@@ -29,21 +32,14 @@ func ReactionSchemaLoader() *gojsonschema.Schema {
 		ExpandedStruct:             true,
 		RequiredFromJSONSchemaTags: true,
 	}
-	reactionSchema := reflector.Reflect(&RawReaction{})
-	reactionsSchema := &jsonschema.Schema{Type: &jsonschema.Type{
-		Version: jsonschema.Version,
-		Type:    "object",
-		Items:   reactionSchema.Type,
-	}, Definitions: reactionSchema.Definitions}
-
-	data, _ := reactionsSchema.MarshalJSON()
+	s := reflector.Reflect(&RawReactions{})
+	data, _ := s.MarshalJSON()
 	schemaLoader := gojsonschema.NewStringLoader(string(data))
 	schema, _ := gojsonschema.NewSchema(schemaLoader)
 	return schema
 }
 
 type ReactionORM struct {
-	gorm.Model
 	ReactionID  int64
 	Timestamp   int
 	Date        string
@@ -54,43 +50,30 @@ type ReactionORM struct {
 	DataOwnerID string
 }
 
-func (r RawReaction) ORM(parseTime int, owner string) []interface{} {
+func (ReactionORM) TableName() string {
+	return "reactions_reaction"
+}
+
+func (r RawReactions) ORM(parseTime int64, owner string) []interface{} {
 	idx := 0
 	result := make([]interface{}, 0)
-	for _, reaction := range r.Reactions {
-		t := time.Unix(int64(reaction.Timestamp), 0)
-
-		title, err := reaction.Title.String()
-		if nil != err {
-			fmt.Printf("convert reaction title with error: %s", err)
-		}
-
-		tmp := reaction.Data[0]
-		actor, err := tmp.Actor.String()
-		if nil != err {
-			fmt.Printf("convert reaction actor with error: %s", err)
-		}
-
-		react, err := tmp.Actor.String()
-		if nil != err {
-			fmt.Printf("convert reaction with error: %s", err)
-		}
-
+	for _, r := range r.Reactions {
+		t := time.Unix(int64(r.Timestamp), 0)
 		orm := ReactionORM{
 			ReactionID:  tableForeignKey(parseTime, idx),
-			Timestamp:   reaction.Timestamp,
+			Timestamp:   r.Timestamp,
 			Date:        dateOfTime(t),
 			Weekday:     weekdayOfTime(t),
-			Title:       title,
-			Actor:       actor,
-			Reaction:    react,
+			Title:       string(r.Title),
 			DataOwnerID: owner,
 		}
-
-		idx++
+		if len(r.Data) > 0 {
+			orm.Actor = string(r.Data[0].Reaction.Actor)
+			orm.Reaction = string(r.Data[0].Reaction.Reaction)
+		}
 
 		result = append(result, orm)
+		idx++
 	}
-
 	return result
 }

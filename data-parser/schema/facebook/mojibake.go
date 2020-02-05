@@ -30,22 +30,3 @@ func (s *MojibakeString) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
-
-func (s *MojibakeString) String() (string, error) {
-	var rawStr string
-	if err := json.Unmarshal([]byte(*s), &rawStr); err != nil {
-		return "", fmt.Errorf("corrupted text: %s", err)
-	}
-
-	rs := []rune(rawStr)
-	bs := make([]byte, 0)
-	for _, r := range rs {
-		b, ok := charmap.ISO8859_1.EncodeRune(r)
-		if !ok {
-			return "", fmt.Errorf("text not latin-1 encoded")
-		}
-		bs = append(bs, b)
-	}
-
-	return string(bs), nil
-}

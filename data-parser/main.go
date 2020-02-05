@@ -6,9 +6,11 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/postgres"
+	"github.com/t-tiger/gorm-bulk-insert"
 
 	"github.com/datapod/data-parser/schema/facebook"
 	"github.com/datapod/data-parser/storage"
@@ -18,7 +20,7 @@ var patterns = []facebook.Pattern{
 	{Name: "posts", Location: "posts", Regexp: regexp.MustCompile("your_posts(?P<index>_[0-9]+).json"), Schema: facebook.PostArraySchemaLoader()},
 	{Name: "comments", Location: "comments", Regexp: regexp.MustCompile("comments.json"), Schema: facebook.CommentArraySchemaLoader()},
 	{Name: "reactions", Location: "likes_and_reactions", Regexp: regexp.MustCompile("posts_and_comments.json"), Schema: facebook.ReactionSchemaLoader()},
-	{Name: "friends", Location: "friends", Regexp: regexp.MustCompile("friends.json"), Schema: facebook.FriendSchemaLoader()},
+	{Name: "friends", Location: "friends", Regexp: regexp.MustCompile("^friends.json"), Schema: facebook.FriendSchemaLoader()},
 }
 
 func main() {
@@ -35,11 +37,10 @@ func main() {
 	workingDir := fmt.Sprintf("%s/%s", rootDir, dataOwner)
 	fs := &storage.LocalFileSystem{}
 
-	// TODO
-	parseTime := 0
-	postID := parseTime
-	postMediaID := parseTime
-	placeID := parseTime
+	parseTimestamp := time.Now().Unix()
+	postID := int(parseTimestamp)
+	postMediaID := int(parseTimestamp)
+	placeID := int(parseTimestamp)
 
 	for _, pattern := range patterns {
 		files, err := pattern.SelectFiles(fs, workingDir)
@@ -69,22 +70,22 @@ func main() {
 					}
 				}
 			case "comments":
-				rawComments := &facebook.RawComment{}
-				err := json.Unmarshal(data, &rawComments)
-				if nil != err {
-					fmt.Printf("unmarshal comment with error: %s\n", err)
+				rawComments := &facebook.RawComments{}
+				json.Unmarshal(data, &rawComments)
+				if err := gormbulk.BulkInsert(db, rawComments.ORM(parseTimestamp, dataOwner), 1000); err != nil {
+					panic(err)
 				}
 			case "reactions":
-				rawReactions := &facebook.RawReaction{}
-				err := json.Unmarshal(data, &rawReactions)
-				if nil != err {
-					fmt.Printf("unmarshal reaction with error: %s", err)
+				rawReactions := &facebook.RawReactions{}
+				json.Unmarshal(data, &rawReactions)
+				if err := gormbulk.BulkInsert(db, rawReactions.ORM(parseTimestamp, dataOwner), 1000); err != nil {
+					panic(err)
 				}
 			case "friends":
-				rawFriends := &facebook.RawFriend{}
-				err := json.Unmarshal(data, &rawFriends)
-				if nil != err {
-					fmt.Printf("unmarshal friend with error: %s", err)
+				rawFriends := &facebook.RawFriends{}
+				json.Unmarshal(data, &rawFriends)
+				if err := gormbulk.BulkInsert(db, rawFriends.ORM(parseTimestamp, dataOwner), 1000); err != nil {
+					panic(err)
 				}
 			}
 		}

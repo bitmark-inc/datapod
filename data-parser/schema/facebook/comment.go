@@ -1,31 +1,31 @@
 package facebook
 
 import (
-	"fmt"
-	"github.com/alecthomas/jsonschema"
-	"github.com/jinzhu/gorm"
-	"github.com/xeipuuv/gojsonschema"
 	"time"
+
+	"github.com/alecthomas/jsonschema"
+	"github.com/xeipuuv/gojsonschema"
 )
 
-type RawComment struct {
+type RawComments struct {
 	Comments []Comment `json:"comments" jsonschema:"required"`
 }
 
 type Comment struct {
-	Timestamp int               `json:"timestamp" jsonschema:"required"`
-	Title     MojibakeString    `json:"title"`
-	Data      []*CommentWrapper `json:"data"`
+	Timestamp   int               `json:"timestamp" jsonschema:"required"`
+	Title       MojibakeString    `json:"title" jsonschema:"required"`
+	Data        []*CommentWrapper `json:"data"`
+	Attachments []*Attachment     `json:"attachments"`
 }
 
 type CommentWrapper struct {
-	Comment CommentData `json:"comment"`
+	Comment CommentData `json:"comment" jsonschema:"required"`
 }
 
 type CommentData struct {
 	Timestamp int            `json:"timestamp" jsonschema:"required"`
-	Comment   string         `json:"comment" jsonschema:"required"`
-	Author    MojibakeString `json:"author" jsonschema:"required"`
+	Comment   MojibakeString `json:"comment" jsonschema:"required"`
+	Author    MojibakeString `json:"author"`
 	Group     MojibakeString `json:"group"`
 }
 
@@ -35,21 +35,14 @@ func CommentArraySchemaLoader() *gojsonschema.Schema {
 		ExpandedStruct:             true,
 		RequiredFromJSONSchemaTags: true,
 	}
-	commentSchema := reflector.Reflect(&RawComment{})
-	commentsSchema := &jsonschema.Schema{Type: &jsonschema.Type{
-		Version: jsonschema.Version,
-		Type:    "object",
-		Items:   commentSchema.Type,
-	}, Definitions: commentSchema.Definitions}
-
-	data, _ := commentsSchema.MarshalJSON()
+	s := reflector.Reflect(&RawComments{})
+	data, _ := s.MarshalJSON()
 	schemaLoader := gojsonschema.NewStringLoader(string(data))
 	schema, _ := gojsonschema.NewSchema(schemaLoader)
 	return schema
 }
 
 type CommentORM struct {
-	gorm.Model
 	CommentsID  int64
 	Timestamp   int
 	Author      string
@@ -59,30 +52,29 @@ type CommentORM struct {
 	DataOwnerID string
 }
 
-func (c RawComment) ORM(parseTime int, owner string) []interface{} {
+func (CommentORM) TableName() string {
+	return "comments_comment"
+}
+
+func (c RawComments) ORM(parseTime int64, owner string) []interface{} {
 	idx := 0
 	result := make([]interface{}, 0)
-	for _, comment := range c.Comments {
-		tmp := comment.Data[0].Comment
-		author, err := tmp.Author.String()
-		if nil != err {
-			fmt.Printf("convert comment author with error: %s", err)
-		}
-
-		t := time.Unix(int64(comment.Timestamp), 0)
+	for _, c := range c.Comments {
+		t := time.Unix(int64(c.Timestamp), 0)
 		orm := CommentORM{
 			CommentsID:  tableForeignKey(parseTime, idx),
-			Timestamp:   comment.Timestamp,
-			Author:      author,
-			Comment:     tmp.Comment,
+			Timestamp:   c.Timestamp,
 			Date:        dateOfTime(t),
 			Weekday:     weekdayOfTime(t),
 			DataOwnerID: owner,
 		}
-
-		idx++
+		if len(c.Data) > 0 {
+			orm.Author = string(c.Data[0].Comment.Author)
+			orm.Comment = string(c.Data[0].Comment.Comment)
+		}
 
 		result = append(result, orm)
+		idx++
 	}
 	return result
 }
