@@ -29,7 +29,8 @@ func FriendSchemaLoader() *gojsonschema.Schema {
 }
 
 type FriendORM struct {
-	FriendID    int64
+	PKID        int   `gorm:"column:pk_id" sql:"PRIMARY_KEY;DEFAULT:nextval('friends_friend_pk_id_seq')"`
+	FriendID    int64 `gorm:"column:tags_id"`
 	FriendName  string
 	Timestamp   int
 	DataOwnerID string
@@ -39,7 +40,7 @@ func (FriendORM) TableName() string {
 	return "friends_friend"
 }
 
-// FIX: friends can have the same name
+// FIXME: friends can have the same name
 func (r RawFriends) ORM(parseTime int64, owner string) []interface{} {
 	idx := 0
 	result := make([]interface{}, 0)

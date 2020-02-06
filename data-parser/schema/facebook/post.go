@@ -27,6 +27,7 @@ type Post struct {
 	DataOwnerID           string
 	MediaItems            []PostMedia `gorm:"foreignkey:PostID;association_foreignkey:PKID"`
 	Places                []Place     `gorm:"foreignkey:PostID;association_foreignkey:PKID"`
+	Tags                  []Tag       `gorm:"foreignkey:PostID;association_foreignkey:PKID"`
 }
 
 func (Post) TableName() string {
@@ -60,19 +61,22 @@ func (Place) TableName() string {
 }
 
 type Tag struct {
-	TFID        int
-	FriendID    int
+	TFID        int `gorm:"column:tfid"`
 	DataOwnerID string
-	PostID      int
-	TagsID      int
-	name        string
+	PostID      int    `gorm:"column:post_id_id"`
+	FriendID    int    `gorm:"column:tags_id"`
+	Name        string `gorm:"-"`
+}
+
+func (Tag) TableName() string {
+	return "tags_tag"
 }
 
 type RawPosts struct {
 	Items []*RawPost
 }
 
-func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID *int) ([]interface{}, []Post) {
+func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID *int, tagID *int) ([]interface{}, []Post) {
 	posts := make([]interface{}, 0)
 	complexPosts := make([]Post, 0)
 
@@ -135,6 +139,19 @@ func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID 
 					post.Places = append(post.Places, place)
 					complex = true
 				}
+			}
+		}
+
+		if len(rp.Tags) > 0 {
+			for _, t := range rp.Tags {
+				tag := Tag{
+					TFID:        *tagID,
+					DataOwnerID: dataOwner,
+					Name:        string(t),
+				}
+				*tagID++
+				post.Tags = append(post.Tags, tag)
+				complex = true
 			}
 		}
 

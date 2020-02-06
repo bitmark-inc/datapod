@@ -17,10 +17,10 @@ import (
 )
 
 var patterns = []facebook.Pattern{
+	{Name: "friends", Location: "friends", Regexp: regexp.MustCompile("^friends.json"), Schema: facebook.FriendSchemaLoader()},
 	{Name: "posts", Location: "posts", Regexp: regexp.MustCompile("your_posts(?P<index>_[0-9]+).json"), Schema: facebook.PostArraySchemaLoader()},
 	{Name: "comments", Location: "comments", Regexp: regexp.MustCompile("comments.json"), Schema: facebook.CommentArraySchemaLoader()},
 	{Name: "reactions", Location: "likes_and_reactions", Regexp: regexp.MustCompile("posts_and_comments.json"), Schema: facebook.ReactionSchemaLoader()},
-	{Name: "friends", Location: "friends", Regexp: regexp.MustCompile("^friends.json"), Schema: facebook.FriendSchemaLoader()},
 }
 
 func main() {
@@ -37,10 +37,11 @@ func main() {
 	workingDir := fmt.Sprintf("%s/%s", rootDir, dataOwner)
 	fs := &storage.LocalFileSystem{}
 
-	parseTimestamp := time.Now().Unix()
+	parseTimestamp := time.Now().UnixNano() / 1000
 	postID := int(parseTimestamp)
 	postMediaID := int(parseTimestamp)
 	placeID := int(parseTimestamp)
+	tagID := int(parseTimestamp)
 
 	for _, pattern := range patterns {
 		files, err := pattern.SelectFiles(fs, workingDir)
@@ -63,12 +64,27 @@ func main() {
 			case "posts":
 				rawPosts := facebook.RawPosts{Items: make([]*facebook.RawPost, 0)}
 				json.Unmarshal(data, &rawPosts.Items)
-				posts, complexPosts := rawPosts.ORM(dataOwner, &postID, &postMediaID, &placeID)
-				fmt.Println(len(posts), len(complexPosts))
+				posts, complexPosts := rawPosts.ORM(dataOwner, &postID, &postMediaID, &placeID, &tagID)
 				if err := gormbulk.BulkInsert(db, posts, 1000); err != nil {
 					panic(err)
 				}
 				for _, p := range complexPosts {
+					if len(p.Tags) > 0 {
+						friends := make([]facebook.FriendORM, 0)
+						if err := db.Where("data_owner_id = ?", dataOwner).Find(&friends).Error; err != nil {
+							panic(err)
+						}
+
+						friendIDs := make(map[string]int)
+						for _, f := range friends {
+							friendIDs[f.FriendName] = f.PKID
+						}
+
+						for i := range p.Tags {
+							p.Tags[i].FriendID = friendIDs[p.Tags[i].Name]
+						}
+					}
+
 					if err := db.Create(&p).Error; err != nil {
 						panic(err)
 					}
