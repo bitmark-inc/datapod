@@ -12,9 +12,10 @@ type RawReactions struct {
 }
 
 type Reaction struct {
-	Timestamp int               `json:"timestamp" jsonschema:"required"`
-	Title     MojibakeString    `json:"title" jsonschema:"required"`
-	Data      []ReactionWrapper `json:"data"`
+	Timestamp   int               `json:"timestamp" jsonschema:"required"`
+	Title       MojibakeString    `json:"title" jsonschema:"required"`
+	Data        []ReactionWrapper `json:"data"`
+	Attachments []*Attachment     `json:"attachments"`
 }
 
 type ReactionWrapper struct {

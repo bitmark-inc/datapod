@@ -29,8 +29,8 @@ func FriendSchemaLoader() *gojsonschema.Schema {
 }
 
 type FriendORM struct {
-	PKID        int   `gorm:"column:pk_id" sql:"PRIMARY_KEY;DEFAULT:nextval('friends_friend_pk_id_seq')"`
-	FriendID    int64 `gorm:"column:tags_id"`
+	PKID        int `gorm:"column:pk_id" sql:"PRIMARY_KEY;DEFAULT:nextval('friends_friend_pk_id_seq')"`
+	FriendID    int64
 	FriendName  string
 	Timestamp   int
 	DataOwnerID string

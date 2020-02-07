@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
@@ -42,11 +41,7 @@ type S3FileSystem struct {
 	svc *s3.S3
 }
 
-func NewS3FileSystem() *S3FileSystem {
-	cfg := &aws.Config{
-		Region: aws.String(endpoints.ApNortheast1RegionID),
-	}
-	sess := session.Must(session.NewSession(cfg))
+func NewS3FileSystem(sess *session.Session) *S3FileSystem {
 	return &S3FileSystem{s3.New(sess)}
 }
 
