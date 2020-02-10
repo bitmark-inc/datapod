@@ -7,8 +7,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/datapod/data-parser/storage"
 	"github.com/xeipuuv/gojsonschema"
+
+	"github.com/datapod/data-parser/storage"
 )
 
 type Pattern struct {
@@ -18,18 +19,24 @@ type Pattern struct {
 	Schema   *gojsonschema.Schema
 }
 
-func (p *Pattern) SelectFiles(fs storage.FileSystem, parentDir string) ([]string, error) {
+func (p *Pattern) SelectFiles(fs storage.FileSystem, dir string) ([]string, error) {
 	targetedFiles := make([]string, 0)
 
-	childDir := filepath.Join(parentDir, p.Location)
-	names, err := fs.ListFileNames(childDir)
+	// exists, err := fs.Exists(context.Background(), dir)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("unable to list files under directory %s: %s", dir, err)
+	// }
+	// if !exists {
+	// 	return nil, nil
+	// }
+
+	names, err := fs.ListFileNames(dir)
 	if err != nil {
-		return nil, fmt.Errorf("unable to list file names under directory %s: %s", parentDir, err)
+		return nil, fmt.Errorf("unable to list files under directory %s: %s", dir, err)
 	}
 	for _, name := range names {
 		if p.Regexp.MatchString(name) {
-			filename := filepath.Join(childDir, name)
-			targetedFiles = append(targetedFiles, filename)
+			targetedFiles = append(targetedFiles, filepath.Join(dir, name))
 		}
 	}
 

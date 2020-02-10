@@ -1,19 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/getsentry/raven-go"
 	"github.com/jinzhu/gorm"
-	log "github.com/sirupsen/logrus"
+	"github.com/mholt/archiver"
 	"github.com/t-tiger/gorm-bulk-insert"
+	"github.com/viant/afs"
+	_ "github.com/viant/afsc/s3"
 
 	"github.com/datapod/data-parser/schema/facebook"
 	"github.com/datapod/data-parser/storage"
@@ -26,20 +27,33 @@ var patterns = []facebook.Pattern{
 	{Name: "reactions", Location: "likes_and_reactions", Regexp: regexp.MustCompile("posts_and_comments.json"), Schema: facebook.ReactionSchemaLoader()},
 }
 
-func handle(fs storage.FileSystem, db *gorm.DB, rootDir, dataOwner string) {
-	workingDir := fmt.Sprintf("%s/%s", rootDir, dataOwner)
+func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dataOwner string, parseTime time.Time) {
+	defer func() {
+		afs.Delete(context.Background(), filepath.Join(workingDir, dataOwner))
+	}()
 
-	parseTimestamp := time.Now().UnixNano() / int64(time.Millisecond) // in milliseconds
-	postID := int(parseTimestamp) * 1000000
-	postMediaID := int(parseTimestamp) * 1000000
-	placeID := int(parseTimestamp) * 1000000
-	tagID := int(parseTimestamp) * 1000000
+	archiveRemoteDir := fmt.Sprintf("s3://%s", filepath.Join(s3Bucket, dataOwner, archiveName))
+	archiveLocalDir := filepath.Join(workingDir, dataOwner, "archives")
+	dataLocalDir := filepath.Join(workingDir, dataOwner, "data")
+	if err := afs.Copy(context.Background(), archiveRemoteDir, archiveLocalDir); err != nil {
+		panic(err)
+	}
+	if err := archiver.Unarchive(filepath.Join(archiveLocalDir, archiveName), dataLocalDir); err != nil {
+		panic(err)
+	}
+	fs := &storage.LocalFileSystem{}
+
+	ts := parseTime.UnixNano() / int64(time.Millisecond) // in milliseconds
+	postID := int(ts) * 1000000
+	postMediaID := int(ts) * 1000000
+	placeID := int(ts) * 1000000
+	tagID := int(ts) * 1000000
 
 	errLogTags := map[string]string{"data_owner": dataOwner}
 	for _, pattern := range patterns {
 		errLogTags["data_type"] = pattern.Name
-
-		files, err := pattern.SelectFiles(fs, workingDir)
+		subDir := filepath.Join(dataLocalDir, pattern.Location)
+		files, err := pattern.SelectFiles(fs, subDir)
 		if err != nil {
 			raven.CaptureErrorAndWait(err, errLogTags)
 			// stop processing if it fails to find what to parse
@@ -61,7 +75,7 @@ func handle(fs storage.FileSystem, db *gorm.DB, rootDir, dataOwner string) {
 			case "friends":
 				rawFriends := &facebook.RawFriends{}
 				json.Unmarshal(data, &rawFriends)
-				if err := gormbulk.BulkInsert(db, rawFriends.ORM(parseTimestamp, dataOwner), 1000); err != nil {
+				if err := gormbulk.BulkInsert(db, rawFriends.ORM(ts, dataOwner), 1000); err != nil {
 					raven.CaptureErrorAndWait(err, errLogTags)
 					// friends must exist for inserting tags
 					// stop processing if it fails to insert friends
@@ -103,14 +117,14 @@ func handle(fs storage.FileSystem, db *gorm.DB, rootDir, dataOwner string) {
 			case "comments":
 				rawComments := &facebook.RawComments{}
 				json.Unmarshal(data, &rawComments)
-				if err := gormbulk.BulkInsert(db, rawComments.ORM(parseTimestamp, dataOwner), 1000); err != nil {
+				if err := gormbulk.BulkInsert(db, rawComments.ORM(ts, dataOwner), 1000); err != nil {
 					raven.CaptureErrorAndWait(err, errLogTags)
 					continue
 				}
 			case "reactions":
 				rawReactions := &facebook.RawReactions{}
 				json.Unmarshal(data, &rawReactions)
-				if err := gormbulk.BulkInsert(db, rawReactions.ORM(parseTimestamp, dataOwner), 1000); err != nil {
+				if err := gormbulk.BulkInsert(db, rawReactions.ORM(ts, dataOwner), 1000); err != nil {
 					raven.CaptureErrorAndWait(err, errLogTags)
 					continue
 				}
@@ -121,42 +135,18 @@ func handle(fs storage.FileSystem, db *gorm.DB, rootDir, dataOwner string) {
 
 func main() {
 	dbURI := os.Getenv("DB_URI")
-	sqsURI := os.Getenv("SQS_URI")
-	rootDir := os.Getenv("ROOT_DIR")
+	s3Bucket := os.Getenv("AWS_S3_BUCKET")
+	workingDir := os.Getenv("WORKING_DIR")
 	sentryDSN := os.Getenv("SENTRY_DSN")
 	sentryEnv := os.Getenv("SENTRY_ENV")
+	dataOwner := os.Args[1]
+	archiveName := os.Args[2]
 
 	raven.SetDSN(sentryDSN)
 	raven.SetEnvironment(sentryEnv)
 
-	sess, err := session.NewSession(&aws.Config{Region: aws.String(endpoints.ApNortheast1RegionID)})
-	if err != nil {
-		panic(err)
-	}
 	db := storage.NewPostgresORMDB(dbURI)
-	fs := storage.NewS3FileSystem(sess)
-	queue := storage.NewSQS(sess, sqsURI)
+	fs := afs.New()
 
-	for {
-		output, err := queue.Poll()
-		if err != nil {
-			raven.CaptureErrorAndWait(err, nil)
-			continue
-		}
-
-		for _, m := range output.Messages {
-			var body struct {
-				DataOwner string `json:"data_owner"`
-			}
-			if err := json.Unmarshal([]byte(*m.Body), &body); err != nil {
-				raven.CaptureError(fmt.Errorf("unknown message format: %s", *m.Body), nil)
-				continue
-			}
-
-			// TODO: if the archive is already successfully parsed, ignore this message; otherwise, wipe all data
-			log.WithField("data_owner", body.DataOwner).Info("start parsing")
-			handle(fs, db, rootDir, body.DataOwner)
-			queue.DeleteMessage(m)
-		}
-	}
+	handle(fs, db, s3Bucket, workingDir, archiveName, dataOwner, time.Now())
 }
