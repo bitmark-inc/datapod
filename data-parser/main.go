@@ -27,7 +27,7 @@ var patterns = []facebook.Pattern{
 	{Name: "reactions", Location: "likes_and_reactions", Regexp: regexp.MustCompile("posts_and_comments.json"), Schema: facebook.ReactionSchemaLoader()},
 }
 
-func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dataOwner string, parseTime time.Time) {
+func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dataOwner string, parseTime time.Time) error {
 	defer func() {
 		afs.Delete(context.Background(), filepath.Join(workingDir, dataOwner))
 	}()
@@ -36,10 +36,10 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 	archiveLocalDir := filepath.Join(workingDir, dataOwner, "archives")
 	dataLocalDir := filepath.Join(workingDir, dataOwner, "data")
 	if err := afs.Copy(context.Background(), archiveRemoteDir, archiveLocalDir); err != nil {
-		panic(err)
+		return err
 	}
 	if err := archiver.Unarchive(filepath.Join(archiveLocalDir, archiveName), dataLocalDir); err != nil {
-		panic(err)
+		return err
 	}
 	fs := &storage.LocalFileSystem{}
 
@@ -57,7 +57,7 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 		if err != nil {
 			raven.CaptureErrorAndWait(err, errLogTags)
 			// stop processing if it fails to find what to parse
-			return
+			return err
 		}
 		for _, file := range files {
 			data, err := fs.ReadFile(file)
@@ -79,7 +79,7 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 					raven.CaptureErrorAndWait(err, errLogTags)
 					// friends must exist for inserting tags
 					// stop processing if it fails to insert friends
-					return
+					return err
 				}
 			case "posts":
 				rawPosts := facebook.RawPosts{Items: make([]*facebook.RawPost, 0)}
@@ -131,22 +131,48 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 			}
 		}
 	}
+	return nil
 }
 
 func main() {
-	dbURI := os.Getenv("DB_URI")
+	postgresURI := os.Getenv("POSTGRES_URI")
 	s3Bucket := os.Getenv("AWS_S3_BUCKET")
-	workingDir := os.Getenv("WORKING_DIR")
 	sentryDSN := os.Getenv("SENTRY_DSN")
 	sentryEnv := os.Getenv("SENTRY_ENV")
-	dataOwner := os.Args[1]
-	archiveName := os.Args[2]
+	workingDir := os.Getenv("DATA_PARSER_WORKING_DIR")
 
 	raven.SetDSN(sentryDSN)
 	raven.SetEnvironment(sentryEnv)
 
-	db := storage.NewPostgresORMDB(dbURI)
+	db := storage.NewPostgresORMDB(postgresURI)
 	fs := afs.New()
 
-	handle(fs, db, s3Bucket, workingDir, archiveName, dataOwner, time.Now())
+	for {
+		tasks, err := storage.GetPendingTasks(db)
+		if err != nil {
+			raven.CaptureError(err, nil)
+		}
+	TaskList:
+		for _, task := range tasks {
+			// mark the task as RUNNING
+			task.Status = storage.TaskStatusRunning
+			if err := storage.UpdateTask(db, task); err != nil {
+				raven.CaptureError(err, nil)
+				continue TaskList
+			}
+
+			err := handle(fs, db, s3Bucket, workingDir, task.Archive.File, task.Archive.DataOwnerID, time.Now())
+
+			task.Status = storage.TaskStatusFinished
+			if err != nil {
+				task.Status = storage.TaskStatusFailed
+			}
+			if err := storage.UpdateTask(db, task); err != nil {
+				raven.CaptureError(err, nil)
+				continue TaskList
+			}
+		}
+
+		time.Sleep(time.Minute)
+	}
 }
