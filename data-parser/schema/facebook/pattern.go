@@ -7,9 +7,15 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/xeipuuv/gojsonschema"
+)
 
-	"github.com/datapod/data-parser/storage"
+var (
+	FriendsPattern   = Pattern{Name: "friends", Location: "friends", Regexp: regexp.MustCompile("^friends.json"), Schema: FriendSchemaLoader()}
+	PostsPattern     = Pattern{Name: "posts", Location: "posts", Regexp: regexp.MustCompile("your_posts(?P<index>_[0-9]+).json"), Schema: PostArraySchemaLoader()}
+	ReactionsPattern = Pattern{Name: "reactions", Location: "likes_and_reactions", Regexp: regexp.MustCompile("posts_and_comments.json"), Schema: ReactionSchemaLoader()}
+	CommentsPattern  = Pattern{Name: "comments", Location: "comments", Regexp: regexp.MustCompile("comments.json"), Schema: CommentArraySchemaLoader()}
 )
 
 type Pattern struct {
@@ -19,24 +25,24 @@ type Pattern struct {
 	Schema   *gojsonschema.Schema
 }
 
-func (p *Pattern) SelectFiles(fs storage.FileSystem, dir string) ([]string, error) {
+func (p *Pattern) SelectFiles(fs afero.Fs, dirname string) ([]string, error) {
 	targetedFiles := make([]string, 0)
 
-	// exists, err := fs.Exists(context.Background(), dir)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("unable to list files under directory %s: %s", dir, err)
-	// }
-	// if !exists {
-	// 	return nil, nil
-	// }
-
-	names, err := fs.ListFileNames(dir)
+	exists, err := afero.Exists(fs, dirname)
 	if err != nil {
-		return nil, fmt.Errorf("unable to list files under directory %s: %s", dir, err)
+		return nil, fmt.Errorf("failed to check if dir %s exists: %s", dirname, err)
 	}
-	for _, name := range names {
-		if p.Regexp.MatchString(name) {
-			targetedFiles = append(targetedFiles, filepath.Join(dir, name))
+	if !exists {
+		return nil, nil
+	}
+
+	files, err := afero.ReadDir(fs, dirname)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read dir %s: %s", dirname, err)
+	}
+	for _, f := range files {
+		if p.Regexp.MatchString(f.Name()) {
+			targetedFiles = append(targetedFiles, filepath.Join(dirname, f.Name()))
 		}
 	}
 
@@ -44,7 +50,7 @@ func (p *Pattern) SelectFiles(fs storage.FileSystem, dir string) ([]string, erro
 }
 
 func (p *Pattern) Validate(data []byte) error {
-	docLoader := gojsonschema.NewStringLoader(string(data))
+	docLoader := gojsonschema.NewBytesLoader(data)
 	result, err := p.Schema.Validate(docLoader)
 	if err != nil {
 		return err

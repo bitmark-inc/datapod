@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"time"
 
 	"github.com/getsentry/raven-go"
 	"github.com/jinzhu/gorm"
 	"github.com/mholt/archiver"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/afero"
 	"github.com/t-tiger/gorm-bulk-insert"
 	"github.com/viant/afs"
 	_ "github.com/viant/afsc/s3"
@@ -21,10 +22,10 @@ import (
 )
 
 var patterns = []facebook.Pattern{
-	{Name: "friends", Location: "friends", Regexp: regexp.MustCompile("^friends.json"), Schema: facebook.FriendSchemaLoader()},
-	{Name: "posts", Location: "posts", Regexp: regexp.MustCompile("your_posts(?P<index>_[0-9]+).json"), Schema: facebook.PostArraySchemaLoader()},
-	{Name: "comments", Location: "comments", Regexp: regexp.MustCompile("comments.json"), Schema: facebook.CommentArraySchemaLoader()},
-	{Name: "reactions", Location: "likes_and_reactions", Regexp: regexp.MustCompile("posts_and_comments.json"), Schema: facebook.ReactionSchemaLoader()},
+	facebook.FriendsPattern,
+	facebook.PostsPattern,
+	facebook.ReactionsPattern,
+	facebook.CommentsPattern,
 }
 
 func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dataOwner string, parseTime time.Time) error {
@@ -32,16 +33,17 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 		afs.Delete(context.Background(), filepath.Join(workingDir, dataOwner))
 	}()
 
-	archiveRemoteDir := fmt.Sprintf("s3://%s", filepath.Join(s3Bucket, dataOwner, archiveName))
+	archiveRemoteDir := fmt.Sprintf("s3://%s", filepath.Join(s3Bucket, archiveName))
 	archiveLocalDir := filepath.Join(workingDir, dataOwner, "archives")
 	dataLocalDir := filepath.Join(workingDir, dataOwner, "data")
+
 	if err := afs.Copy(context.Background(), archiveRemoteDir, archiveLocalDir); err != nil {
 		return err
 	}
-	if err := archiver.Unarchive(filepath.Join(archiveLocalDir, archiveName), dataLocalDir); err != nil {
+	if err := archiver.Unarchive(filepath.Join(archiveLocalDir, filepath.Base(archiveName)), dataLocalDir); err != nil {
 		return err
 	}
-	fs := &storage.LocalFileSystem{}
+	fs := afero.NewOsFs()
 
 	ts := parseTime.UnixNano() / int64(time.Millisecond) // in milliseconds
 	postID := int(ts) * 1000000
@@ -60,7 +62,7 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 			return err
 		}
 		for _, file := range files {
-			data, err := fs.ReadFile(file)
+			data, err := afero.ReadFile(fs, file)
 			if err != nil {
 				raven.CaptureErrorAndWait(err, errLogTags)
 				continue
@@ -145,6 +147,7 @@ func main() {
 	raven.SetEnvironment(sentryEnv)
 
 	db := storage.NewPostgresORMDB(postgresURI)
+	db = db.Debug()
 	fs := afs.New()
 
 	for {
@@ -154,20 +157,23 @@ func main() {
 		}
 	TaskList:
 		for _, task := range tasks {
+			fmt.Printf("%+v", task)
+			log.WithFields(log.Fields{"data_owner": task.DataOwnerID}).Info("start parsing")
+
 			// mark the task as RUNNING
-			task.Status = storage.TaskStatusRunning
-			if err := storage.UpdateTask(db, task); err != nil {
+			if err := storage.UpdateTaskStatus(db, task, storage.TaskStatusRunning); err != nil {
 				raven.CaptureError(err, nil)
 				continue TaskList
 			}
 
 			err := handle(fs, db, s3Bucket, workingDir, task.Archive.File, task.Archive.DataOwnerID, time.Now())
 
-			task.Status = storage.TaskStatusFinished
+			status := storage.TaskStatusFinished
 			if err != nil {
-				task.Status = storage.TaskStatusFailed
+				fmt.Println(err)
+				status = storage.TaskStatusFailed
 			}
-			if err := storage.UpdateTask(db, task); err != nil {
+			if err := storage.UpdateTaskStatus(db, task, status); err != nil {
 				raven.CaptureError(err, nil)
 				continue TaskList
 			}

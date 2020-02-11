@@ -9,7 +9,7 @@ type Archive struct {
 	File        string
 	FileName    string
 	FileSize    int
-	UploadedAt  string
+	UploadedAt  time.Time
 	DataOwnerID string
 }
 
@@ -20,10 +20,10 @@ func (Archive) TableName() string {
 type TaskStatusType int
 
 const (
-	TaskStatusPending  = 1
-	TaskStatusRunning  = 10
-	TaskStatusFailed   = 99
-	TaskStatusFinished = 100
+	TaskStatusPending  = TaskStatusType(1)
+	TaskStatusRunning  = TaskStatusType(10)
+	TaskStatusFailed   = TaskStatusType(99)
+	TaskStatusFinished = TaskStatusType(100)
 )
 
 type Task struct {

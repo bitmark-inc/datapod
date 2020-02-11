@@ -30,11 +30,11 @@ func GetPendingTasks(db *gorm.DB) ([]*Task, error) {
 	query := db.
 		Preload("Archive").
 		Table("tasks_task").
-		Select("DISTINCT ON (data_owner_id) archive_id").
+		Select("DISTINCT ON (data_owner_id) data_owner_id, archive_id").
 		Where("status = ?", TaskStatusPending).
 		Order("data_owner_id, created_at ASC")
 	if len(dataOwnerWithRunningTasks) > 0 {
-		query = query.Not("data_owner_id in ?", dataOwnerWithRunningTasks)
+		query = query.Not("data_owner_id in (?)", dataOwnerWithRunningTasks)
 	}
 	if err := query.Find(&tasks).Error; err != nil {
 		return nil, err
@@ -43,6 +43,6 @@ func GetPendingTasks(db *gorm.DB) ([]*Task, error) {
 	return tasks, nil
 }
 
-func UpdateTask(db *gorm.DB, task *Task) error {
-	return db.Update(task).Error
+func UpdateTaskStatus(db *gorm.DB, task *Task, status TaskStatusType) error {
+	return db.Model(task).UpdateColumn("status", status).Error
 }
