@@ -9,7 +9,7 @@ import (
 
 	"github.com/xeipuuv/gojsonschema"
 
-	"github.com/datapod/data-parser/storage"
+	"github.com/bitmark-inc/datapod/data-parser/storage"
 )
 
 type Pattern struct {
