@@ -131,9 +131,11 @@ func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID 
 						PPID:        *placeID,
 						Name:        string(item.Place.Name),
 						Address:     string(item.Place.Address),
-						Latitude:    item.Place.Coordinate.Latitude,
-						Longitude:   item.Place.Coordinate.Longitude,
 						DataOwnerID: dataOwner,
+					}
+					if item.Place.Coordinate != nil {
+						place.Latitude = item.Place.Coordinate.Latitude
+						place.Longitude = item.Place.Coordinate.Longitude
 					}
 					*placeID++
 					post.Places = append(post.Places, place)

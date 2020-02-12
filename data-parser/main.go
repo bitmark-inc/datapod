@@ -147,7 +147,6 @@ func main() {
 	raven.SetEnvironment(sentryEnv)
 
 	db := storage.NewPostgresORMDB(postgresURI)
-	db = db.Debug()
 	fs := afs.New()
 
 	for {
