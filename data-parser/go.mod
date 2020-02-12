@@ -13,6 +13,10 @@ require (
 	github.com/lunixbochs/vtclean v1.0.0 // indirect
 	github.com/mholt/archiver v3.1.1+incompatible
 	github.com/nwaples/rardecode v1.0.0 // indirect
+	github.com/pkg/errors v0.8.1 // indirect
+	github.com/sirupsen/logrus v1.2.0
+	github.com/spf13/afero v1.2.2
+	github.com/stretchr/testify v1.4.0
 	github.com/t-tiger/gorm-bulk-insert v1.3.0
 	github.com/viant/afs v0.15.2
 	github.com/viant/afsc v0.14.3

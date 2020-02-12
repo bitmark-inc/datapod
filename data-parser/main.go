@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"time"
 
 	"github.com/getsentry/raven-go"
 	"github.com/jinzhu/gorm"
 	"github.com/mholt/archiver"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/afero"
 	"github.com/t-tiger/gorm-bulk-insert"
 	"github.com/viant/afs"
 	_ "github.com/viant/afsc/s3"
@@ -21,27 +22,28 @@ import (
 )
 
 var patterns = []facebook.Pattern{
-	{Name: "friends", Location: "friends", Regexp: regexp.MustCompile("^friends.json"), Schema: facebook.FriendSchemaLoader()},
-	{Name: "posts", Location: "posts", Regexp: regexp.MustCompile("your_posts(?P<index>_[0-9]+).json"), Schema: facebook.PostArraySchemaLoader()},
-	{Name: "comments", Location: "comments", Regexp: regexp.MustCompile("comments.json"), Schema: facebook.CommentArraySchemaLoader()},
-	{Name: "reactions", Location: "likes_and_reactions", Regexp: regexp.MustCompile("posts_and_comments.json"), Schema: facebook.ReactionSchemaLoader()},
+	facebook.FriendsPattern,
+	facebook.PostsPattern,
+	facebook.ReactionsPattern,
+	facebook.CommentsPattern,
 }
 
-func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dataOwner string, parseTime time.Time) {
+func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dataOwner string, parseTime time.Time) error {
 	defer func() {
 		afs.Delete(context.Background(), filepath.Join(workingDir, dataOwner))
 	}()
 
-	archiveRemoteDir := fmt.Sprintf("s3://%s", filepath.Join(s3Bucket, dataOwner, archiveName))
+	archiveRemoteDir := fmt.Sprintf("s3://%s", filepath.Join(s3Bucket, archiveName))
 	archiveLocalDir := filepath.Join(workingDir, dataOwner, "archives")
 	dataLocalDir := filepath.Join(workingDir, dataOwner, "data")
+
 	if err := afs.Copy(context.Background(), archiveRemoteDir, archiveLocalDir); err != nil {
-		panic(err)
+		return err
 	}
-	if err := archiver.Unarchive(filepath.Join(archiveLocalDir, archiveName), dataLocalDir); err != nil {
-		panic(err)
+	if err := archiver.Unarchive(filepath.Join(archiveLocalDir, filepath.Base(archiveName)), dataLocalDir); err != nil {
+		return err
 	}
-	fs := &storage.LocalFileSystem{}
+	fs := afero.NewOsFs()
 
 	ts := parseTime.UnixNano() / int64(time.Millisecond) // in milliseconds
 	postID := int(ts) * 1000000
@@ -57,10 +59,10 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 		if err != nil {
 			raven.CaptureErrorAndWait(err, errLogTags)
 			// stop processing if it fails to find what to parse
-			return
+			return err
 		}
 		for _, file := range files {
-			data, err := fs.ReadFile(file)
+			data, err := afero.ReadFile(fs, file)
 			if err != nil {
 				raven.CaptureErrorAndWait(err, errLogTags)
 				continue
@@ -79,7 +81,7 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 					raven.CaptureErrorAndWait(err, errLogTags)
 					// friends must exist for inserting tags
 					// stop processing if it fails to insert friends
-					return
+					return err
 				}
 			case "posts":
 				rawPosts := facebook.RawPosts{Items: make([]*facebook.RawPost, 0)}
@@ -131,22 +133,50 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 			}
 		}
 	}
+	return nil
 }
 
 func main() {
-	dbURI := os.Getenv("DB_URI")
+	postgresURI := os.Getenv("POSTGRES_URI")
 	s3Bucket := os.Getenv("AWS_S3_BUCKET")
-	workingDir := os.Getenv("WORKING_DIR")
 	sentryDSN := os.Getenv("SENTRY_DSN")
 	sentryEnv := os.Getenv("SENTRY_ENV")
-	dataOwner := os.Args[1]
-	archiveName := os.Args[2]
+	workingDir := os.Getenv("DATA_PARSER_WORKING_DIR")
 
 	raven.SetDSN(sentryDSN)
 	raven.SetEnvironment(sentryEnv)
 
-	db := storage.NewPostgresORMDB(dbURI)
+	db := storage.NewPostgresORMDB(postgresURI)
+	db = db.Debug()
 	fs := afs.New()
 
-	handle(fs, db, s3Bucket, workingDir, archiveName, dataOwner, time.Now())
+	for {
+		tasks, err := storage.GetPendingTasks(db)
+		if err != nil {
+			raven.CaptureError(err, nil)
+		}
+	TaskList:
+		for _, task := range tasks {
+			log.WithFields(log.Fields{"data_owner": task.DataOwnerID}).Info("start parsing")
+
+			// mark the task as RUNNING
+			if err := storage.UpdateTaskStatus(db, task, storage.TaskStatusRunning); err != nil {
+				raven.CaptureError(err, nil)
+				continue TaskList
+			}
+
+			err := handle(fs, db, s3Bucket, workingDir, task.Archive.File, task.Archive.DataOwnerID, time.Now())
+			status := storage.TaskStatusFinished
+			if err != nil {
+				raven.CaptureError(err, nil)
+				status = storage.TaskStatusFailed
+			}
+			if err := storage.UpdateTaskStatus(db, task, status); err != nil {
+				raven.CaptureError(err, nil)
+				continue TaskList
+			}
+		}
+
+		time.Sleep(time.Minute)
+	}
 }
