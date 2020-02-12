@@ -37,12 +37,15 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 	archiveLocalDir := filepath.Join(workingDir, dataOwner, "archives")
 	dataLocalDir := filepath.Join(workingDir, dataOwner, "data")
 
+	log.WithFields(log.Fields{"data_owner": dataOwner}).Info("downloading archive")
 	if err := afs.Copy(context.Background(), archiveRemoteDir, archiveLocalDir); err != nil {
 		return err
 	}
+	log.WithFields(log.Fields{"data_owner": dataOwner}).Info("unzipping archive")
 	if err := archiver.Unarchive(filepath.Join(archiveLocalDir, filepath.Base(archiveName)), dataLocalDir); err != nil {
 		return err
 	}
+
 	fs := afero.NewOsFs()
 
 	ts := parseTime.UnixNano() / int64(time.Millisecond) // in milliseconds
@@ -51,6 +54,7 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 	placeID := int(ts) * 1000000
 	tagID := int(ts) * 1000000
 
+	log.WithFields(log.Fields{"data_owner": dataOwner}).Info("start inserting records to db")
 	errLogTags := map[string]string{"data_owner": dataOwner}
 	for _, pattern := range patterns {
 		errLogTags["data_type"] = pattern.Name
@@ -174,6 +178,8 @@ func main() {
 				raven.CaptureError(err, nil)
 				continue TaskList
 			}
+
+			log.WithFields(log.Fields{"data_owner": task.DataOwnerID}).Info("finish parsing")
 		}
 
 		time.Sleep(time.Minute)
