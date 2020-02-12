@@ -17,8 +17,8 @@ import (
 	"github.com/viant/afs"
 	_ "github.com/viant/afsc/s3"
 
-	"github.com/datapod/data-parser/schema/facebook"
-	"github.com/datapod/data-parser/storage"
+	"github.com/bitmark-inc/datapod/data-parser/schema/facebook"
+	"github.com/bitmark-inc/datapod/data-parser/storage"
 )
 
 var patterns = []facebook.Pattern{

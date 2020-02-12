@@ -9,6 +9,6 @@ RUN go mod download
 
 ADD . .
 
-RUN go install github.com/datapod/data-parser
+RUN go install github.com/bitmark-inc/datapod/data-parser
 
 CMD data-parser
