@@ -157,7 +157,6 @@ func main() {
 		}
 	TaskList:
 		for _, task := range tasks {
-			fmt.Printf("%+v", task)
 			log.WithFields(log.Fields{"data_owner": task.DataOwnerID}).Info("start parsing")
 
 			// mark the task as RUNNING
@@ -167,10 +166,9 @@ func main() {
 			}
 
 			err := handle(fs, db, s3Bucket, workingDir, task.Archive.File, task.Archive.DataOwnerID, time.Now())
-
 			status := storage.TaskStatusFinished
 			if err != nil {
-				fmt.Println(err)
+				raven.CaptureError(err, nil)
 				status = storage.TaskStatusFailed
 			}
 			if err := storage.UpdateTaskStatus(db, task, status); err != nil {

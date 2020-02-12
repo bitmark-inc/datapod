@@ -30,7 +30,7 @@ func GetPendingTasks(db *gorm.DB) ([]*Task, error) {
 	query := db.
 		Preload("Archive").
 		Table("tasks_task").
-		Select("DISTINCT ON (data_owner_id) data_owner_id, archive_id").
+		Select("DISTINCT ON (data_owner_id) id, data_owner_id, archive_id").
 		Where("status = ?", TaskStatusPending).
 		Order("data_owner_id, created_at ASC")
 	if len(dataOwnerWithRunningTasks) > 0 {
