@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/getsentry/raven-go"
+	"github.com/getsentry/sentry-go"
 	"github.com/jinzhu/gorm"
 	"github.com/mholt/archiver"
 	log "github.com/sirupsen/logrus"
@@ -23,6 +23,16 @@ var patterns = []facebook.Pattern{
 	facebook.PostsPattern,
 	facebook.ReactionsPattern,
 	facebook.CommentsPattern,
+}
+
+func init() {
+	sentryDSN := os.Getenv("SENTRY_DSN")
+	sentryEnv := os.Getenv("SENTRY_ENV")
+
+	sentry.Init(sentry.ClientOptions{
+		Dsn:         sentryDSN,
+		Environment: sentryEnv,
+	})
 }
 
 func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseTime time.Time) error {
@@ -140,19 +150,14 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 func main() {
 	postgresURI := os.Getenv("POSTGRES_URI")
 	s3Bucket := os.Getenv("AWS_S3_BUCKET")
-	sentryDSN := os.Getenv("SENTRY_DSN")
-	sentryEnv := os.Getenv("SENTRY_ENV")
 	workingDir := os.Getenv("DATA_PARSER_WORKING_DIR")
-
-	raven.SetDSN(sentryDSN)
-	raven.SetEnvironment(sentryEnv)
 
 	db := storage.NewPostgresORMDB(postgresURI)
 
 	for {
 		task, err := storage.GetNextRunningTask(db)
 		if err != nil {
-			raven.CaptureError(err, nil)
+			sentry.CaptureException(err)
 		}
 
 		if task == nil {
@@ -164,11 +169,12 @@ func main() {
 
 		status := storage.TaskStatusFinished
 		if err != nil {
+			sentry.CaptureException(err)
 			status = storage.TaskStatusFailed
 		}
 
 		if err := storage.UpdateTaskStatus(db, task, status); err != nil {
-			raven.CaptureError(err, nil)
+			sentry.CaptureException(err)
 		}
 	}
 }
