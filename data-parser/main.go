@@ -117,10 +117,16 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 							friendIDs[f.FriendName] = f.PKID
 						}
 
-						// TODO: remove tagged people who are not friends
+						// FIXME: non-friends couldn't be tagged
+						c := 0 // valid tag count
 						for i := range p.Tags {
-							p.Tags[i].FriendID = friendIDs[p.Tags[i].Name]
+							friendID, ok := friendIDs[p.Tags[i].Name]
+							if ok {
+								p.Tags[i].FriendID = friendID
+								c++
+							}
 						}
+						p.Tags = p.Tags[:c]
 					}
 
 					if err := db.Create(&p).Error; err != nil {
