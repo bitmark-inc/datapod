@@ -13,11 +13,12 @@ func NewPostgresORMDB(dbURI string) *gorm.DB {
 	return db
 }
 
-func GetPendingTasks(db *gorm.DB) ([]*Task, error) {
-	tasks := make([]*Task, 0)
+func GetNextRunningTask(db *gorm.DB) (*Task, error) {
+	var task Task
 
+	dbTx := db.Begin()
 	dataOwnerWithRunningTasks := make([]string, 0)
-	err := db.
+	err := dbTx.
 		Table("tasks_task").
 		Select("data_owner_id").
 		Where("status = ?", TaskStatusRunning).
@@ -27,7 +28,7 @@ func GetPendingTasks(db *gorm.DB) ([]*Task, error) {
 		return nil, err
 	}
 
-	query := db.
+	query := dbTx.
 		Preload("Archive").
 		Table("tasks_task").
 		Select("DISTINCT ON (data_owner_id) id, data_owner_id, archive_id").
@@ -36,11 +37,24 @@ func GetPendingTasks(db *gorm.DB) ([]*Task, error) {
 	if len(dataOwnerWithRunningTasks) > 0 {
 		query = query.Not("data_owner_id in (?)", dataOwnerWithRunningTasks)
 	}
-	if err := query.Find(&tasks).Error; err != nil {
+	err = query.First(&task).Error
+	if gorm.IsRecordNotFoundError(err) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
 	}
 
-	return tasks, nil
+	if err := dbTx.Model(&task).UpdateColumn("status", TaskStatusRunning).Error; err != nil {
+		dbTx.Rollback()
+		return nil, err
+	}
+
+	if err := dbTx.Commit().Error; err != nil {
+		return nil, err
+	}
+
+	return &task, nil
 }
 
 func UpdateTaskStatus(db *gorm.DB, task *Task, status TaskStatusType) error {

@@ -150,29 +150,25 @@ func main() {
 	db := storage.NewPostgresORMDB(postgresURI)
 
 	for {
-		// TODO: get one task each time only
-		tasks, err := storage.GetPendingTasks(db)
+		task, err := storage.GetNextRunningTask(db)
 		if err != nil {
 			raven.CaptureError(err, nil)
 		}
-	TaskList:
-		for _, task := range tasks {
-			if err := storage.UpdateTaskStatus(db, task, storage.TaskStatusRunning); err != nil {
-				raven.CaptureError(err, nil)
-				continue TaskList
-			}
 
-			err := handle(db, s3Bucket, workingDir, task, time.Now())
-			status := storage.TaskStatusFinished
-			if err != nil {
-				status = storage.TaskStatusFailed
-			}
-			if err := storage.UpdateTaskStatus(db, task, status); err != nil {
-				raven.CaptureError(err, nil)
-				continue TaskList
-			}
+		if task == nil {
+			time.Sleep(time.Minute)
+			continue
 		}
 
-		time.Sleep(time.Minute)
+		err = handle(db, s3Bucket, workingDir, task, time.Now())
+
+		status := storage.TaskStatusFinished
+		if err != nil {
+			status = storage.TaskStatusFailed
+		}
+
+		if err := storage.UpdateTaskStatus(db, task, status); err != nil {
+			raven.CaptureError(err, nil)
+		}
 	}
 }
