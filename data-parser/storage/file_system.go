@@ -1,82 +1,41 @@
 package storage
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/spf13/afero"
 )
 
-type FileSystem interface {
-	ListFileNames(dirname string) ([]string, error)
-	ReadFile(filename string) ([]byte, error)
+var (
+	downloader *s3manager.Downloader
+)
+
+func init() {
+	// TODO: could the regsion set from environment variable?
+	sess := session.New(&aws.Config{Region: aws.String(endpoints.ApNortheast1RegionID)})
+	downloader = s3manager.NewDownloader(sess)
 }
 
-type LocalFileSystem struct{}
-
-func (l *LocalFileSystem) ListFileNames(dirname string) ([]string, error) {
-	filenames := make([]string, 0)
-
-	files, err := ioutil.ReadDir(dirname)
-	if err != nil {
+func CreateFile(fs afero.Fs, path string) (*os.File, error) {
+	if err := fs.MkdirAll(filepath.Dir(path), os.FileMode(0777)); err != nil {
 		return nil, err
 	}
-	for _, f := range files {
-		if !f.IsDir() {
-			filenames = append(filenames, f.Name())
-		}
-	}
-
-	return filenames, nil
+	return os.Create(path)
 }
 
-func (l *LocalFileSystem) ReadFile(filename string) ([]byte, error) {
-	return ioutil.ReadFile(filename)
-}
-
-type S3FileSystem struct {
-	svc *s3.S3
-}
-
-func NewS3FileSystem(sess *session.Session) *S3FileSystem {
-	return &S3FileSystem{s3.New(sess)}
-}
-
-func (s *S3FileSystem) ListFileNames(dirname string) ([]string, error) {
-	filenames := make([]string, 0)
-
-	parts := strings.Split(dirname, "/")
-	input := &s3.ListObjectsInput{
-		Bucket:    aws.String(parts[0]),
-		Prefix:    aws.String(strings.Join(parts[1:], "/") + "/"),
-		Delimiter: aws.String("/"),
-	}
-	output, err := s.svc.ListObjects(input)
-	if err != nil {
-		return nil, err
-	}
-	for _, c := range output.Contents {
-		if c.Key != nil {
-			filenames = append(filenames, filepath.Base(*c.Key))
-		}
-	}
-
-	return filenames, nil
-}
-
-func (s *S3FileSystem) ReadFile(filename string) ([]byte, error) {
-	parts := strings.Split(filename, "/")
+func DownloadArchive(bucket, key string, file *os.File) error {
 	input := &s3.GetObjectInput{
-		Bucket: aws.String(parts[0]),
-		Key:    aws.String(strings.Join(parts[1:], "/")),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
 	}
-	output, err := s.svc.GetObject(input)
-	if err != nil {
-		return nil, err
+	if _, err := downloader.Download(file, input); err != nil {
+		return err
 	}
-
-	return ioutil.ReadAll(output.Body)
+	return nil
 }

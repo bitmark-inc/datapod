@@ -1,9 +1,7 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -14,7 +12,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/afero"
 	"github.com/t-tiger/gorm-bulk-insert"
-	"github.com/viant/afs"
 	_ "github.com/viant/afsc/s3"
 
 	"github.com/bitmark-inc/datapod/data-parser/schema/facebook"
@@ -28,25 +25,33 @@ var patterns = []facebook.Pattern{
 	facebook.CommentsPattern,
 }
 
-func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dataOwner string, parseTime time.Time) error {
-	defer func() {
-		afs.Delete(context.Background(), filepath.Join(workingDir, dataOwner))
-	}()
+func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseTime time.Time) error {
+	contextLogger := log.WithFields(log.Fields{"task_id": task.ID})
+	contextLogger.Info("task started")
 
-	archiveRemoteDir := fmt.Sprintf("s3://%s", filepath.Join(s3Bucket, archiveName))
-	archiveLocalDir := filepath.Join(workingDir, dataOwner, "archives")
-	dataLocalDir := filepath.Join(workingDir, dataOwner, "data")
-
-	log.WithFields(log.Fields{"data_owner": dataOwner}).Info("downloading archive")
-	if err := afs.Copy(context.Background(), archiveRemoteDir, archiveLocalDir); err != nil {
-		return err
-	}
-	log.WithFields(log.Fields{"data_owner": dataOwner}).Info("unzipping archive")
-	if err := archiver.Unarchive(filepath.Join(archiveLocalDir, filepath.Base(archiveName)), dataLocalDir); err != nil {
-		return err
-	}
+	dataOwner := task.Archive.DataOwnerID
+	dataOwnerDir := filepath.Join(workingDir, dataOwner)
+	archiveDir := filepath.Join(dataOwnerDir, "archive")
+	archivePath := filepath.Join(archiveDir, filepath.Base(task.Archive.File))
+	dataDir := filepath.Join(dataOwnerDir, "data")
 
 	fs := afero.NewOsFs()
+	file, err := storage.CreateFile(fs, archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	defer fs.RemoveAll(dataOwnerDir)
+
+	if err := storage.DownloadArchive(s3Bucket, task.Archive.File, file); err != nil {
+		return err
+	}
+	contextLogger.Info("archive downloaded")
+
+	if err := archiver.Unarchive(archivePath, dataDir); err != nil {
+		return err
+	}
+	contextLogger.Info("archive unzipped")
 
 	ts := parseTime.UnixNano() / int64(time.Millisecond) // in milliseconds
 	postID := int(ts) * 1000000
@@ -54,27 +59,22 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 	placeID := int(ts) * 1000000
 	tagID := int(ts) * 1000000
 
-	log.WithFields(log.Fields{"data_owner": dataOwner}).Info("start inserting records to db")
-	errLogTags := map[string]string{"data_owner": dataOwner}
 	for _, pattern := range patterns {
-		errLogTags["data_type"] = pattern.Name
-		subDir := filepath.Join(dataLocalDir, pattern.Location)
+		contextLogger.WithField("type", pattern.Name).Info("parsing and inserting records into db")
+
+		subDir := filepath.Join(dataDir, pattern.Location)
 		files, err := pattern.SelectFiles(fs, subDir)
 		if err != nil {
-			raven.CaptureErrorAndWait(err, errLogTags)
-			// stop processing if it fails to find what to parse
 			return err
 		}
 		for _, file := range files {
 			data, err := afero.ReadFile(fs, file)
 			if err != nil {
-				raven.CaptureErrorAndWait(err, errLogTags)
-				continue
+				return err
 			}
 
 			if err := pattern.Validate(data); err != nil {
-				raven.CaptureErrorAndWait(err, errLogTags)
-				continue
+				return err
 			}
 
 			switch pattern.Name {
@@ -82,7 +82,6 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 				rawFriends := &facebook.RawFriends{}
 				json.Unmarshal(data, &rawFriends)
 				if err := gormbulk.BulkInsert(db, rawFriends.ORM(ts, dataOwner), 1000); err != nil {
-					raven.CaptureErrorAndWait(err, errLogTags)
 					// friends must exist for inserting tags
 					// stop processing if it fails to insert friends
 					return err
@@ -92,7 +91,6 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 				json.Unmarshal(data, &rawPosts.Items)
 				posts, complexPosts := rawPosts.ORM(dataOwner, &postID, &postMediaID, &placeID, &tagID)
 				if err := gormbulk.BulkInsert(db, posts, 1000); err != nil {
-					raven.CaptureErrorAndWait(err, errLogTags)
 					continue
 				}
 				for _, p := range complexPosts {
@@ -101,7 +99,6 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 						if err := db.Where("data_owner_id = ?", dataOwner).Find(&friends).Error; err != nil {
 							// friends must exist for inserting tags
 							// deal with the next post if it fails to find friends of this data owner
-							raven.CaptureErrorAndWait(err, errLogTags)
 							continue
 						}
 
@@ -110,13 +107,13 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 							friendIDs[f.FriendName] = f.PKID
 						}
 
+						// TODO: remove tagged people who are not friends
 						for i := range p.Tags {
 							p.Tags[i].FriendID = friendIDs[p.Tags[i].Name]
 						}
 					}
 
 					if err := db.Create(&p).Error; err != nil {
-						raven.CaptureErrorAndWait(err, errLogTags)
 						continue
 					}
 				}
@@ -124,19 +121,19 @@ func handle(afs afs.Service, db *gorm.DB, s3Bucket, workingDir, archiveName, dat
 				rawComments := &facebook.RawComments{}
 				json.Unmarshal(data, &rawComments)
 				if err := gormbulk.BulkInsert(db, rawComments.ORM(ts, dataOwner), 1000); err != nil {
-					raven.CaptureErrorAndWait(err, errLogTags)
 					continue
 				}
 			case "reactions":
 				rawReactions := &facebook.RawReactions{}
 				json.Unmarshal(data, &rawReactions)
 				if err := gormbulk.BulkInsert(db, rawReactions.ORM(ts, dataOwner), 1000); err != nil {
-					raven.CaptureErrorAndWait(err, errLogTags)
 					continue
 				}
 			}
 		}
 	}
+
+	contextLogger.Info("task finished")
 	return nil
 }
 
@@ -151,35 +148,29 @@ func main() {
 	raven.SetEnvironment(sentryEnv)
 
 	db := storage.NewPostgresORMDB(postgresURI)
-	fs := afs.New()
 
 	for {
+		// TODO: get one task each time only
 		tasks, err := storage.GetPendingTasks(db)
 		if err != nil {
 			raven.CaptureError(err, nil)
 		}
 	TaskList:
 		for _, task := range tasks {
-			log.WithFields(log.Fields{"data_owner": task.DataOwnerID}).Info("start parsing")
-
-			// mark the task as RUNNING
 			if err := storage.UpdateTaskStatus(db, task, storage.TaskStatusRunning); err != nil {
 				raven.CaptureError(err, nil)
 				continue TaskList
 			}
 
-			err := handle(fs, db, s3Bucket, workingDir, task.Archive.File, task.Archive.DataOwnerID, time.Now())
+			err := handle(db, s3Bucket, workingDir, task, time.Now())
 			status := storage.TaskStatusFinished
 			if err != nil {
-				raven.CaptureError(err, nil)
 				status = storage.TaskStatusFailed
 			}
 			if err := storage.UpdateTaskStatus(db, task, status); err != nil {
 				raven.CaptureError(err, nil)
 				continue TaskList
 			}
-
-			log.WithFields(log.Fields{"data_owner": task.DataOwnerID}).Info("finish parsing")
 		}
 
 		time.Sleep(time.Minute)
