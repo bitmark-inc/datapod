@@ -19,10 +19,10 @@ import (
 )
 
 var patterns = []facebook.Pattern{
-	// facebook.FriendsPattern,
-	// facebook.PostsPattern,
-	// facebook.ReactionsPattern,
-	// facebook.CommentsPattern,
+	facebook.FriendsPattern,
+	facebook.PostsPattern,
+	facebook.ReactionsPattern,
+	facebook.CommentsPattern,
 	facebook.MediaPattern,
 	facebook.FilesPattern,
 }
