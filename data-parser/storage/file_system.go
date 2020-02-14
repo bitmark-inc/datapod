@@ -112,6 +112,10 @@ func DownloadArchiveFromS3(bucket, key string, file *os.File) error {
 }
 
 func UploadDirToS3(bucket, keyPrefix, dirpath string) error {
+	if _, err := os.Stat(dirpath); os.IsNotExist(err) {
+		return nil
+	}
+
 	iter := NewDirectoryIterator(bucket, dirpath, keyPrefix)
 	return uploader.UploadWithIterator(aws.BackgroundContext(), iter)
 }
@@ -137,7 +141,7 @@ func ExtractArchive(source, target, destination string) error {
 		MkdirAll:               true,
 		SelectiveCompression:   true,
 		ContinueOnError:        false,
-		OverwriteExisting:      true,
+		OverwriteExisting:      false,
 		ImplicitTopLevelFolder: false,
 	}
 	return z.Extract(source, target, destination)
