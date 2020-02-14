@@ -1,6 +1,6 @@
 FROM bitmark/go-env:go12
 
-WORKDIR /go-mod/github.com/datapod/data-parser
+WORKDIR /go-mod/github.com/bitmark-inc/datapod/data-parser
 
 ADD go.mod .
 ADD go.sum .
