@@ -19,10 +19,10 @@ import (
 )
 
 var patterns = []facebook.Pattern{
-	facebook.FriendsPattern,
-	facebook.PostsPattern,
-	facebook.ReactionsPattern,
-	facebook.CommentsPattern,
+	// facebook.FriendsPattern,
+	// facebook.PostsPattern,
+	// facebook.ReactionsPattern,
+	// facebook.CommentsPattern,
 	facebook.MediaPattern,
 	facebook.FilesPattern,
 }
@@ -59,12 +59,14 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 	fs := afero.NewOsFs()
 	file, err := storage.CreateFile(fs, archivePath)
 	if err != nil {
+		sentry.CaptureException(err)
 		return err
 	}
 	defer file.Close()
 	defer fs.RemoveAll(dataOwnerDir)
 
 	if err := storage.DownloadArchiveFromS3(s3Bucket, task.Archive.File, file); err != nil {
+		sentry.CaptureException(err)
 		return err
 	}
 	contextLogger.Info("archive downloaded")
@@ -79,26 +81,31 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 		contextLogger.WithField("type", pattern.Name).Info("parsing and inserting records into db")
 
 		if err := storage.ExtractArchive(archivePath, pattern.Location, dataDir); err != nil {
+			sentry.CaptureException(err)
 			return err
 		}
 
 		subDir := filepath.Join(dataDir, pattern.Location)
 		if pattern.Name == "media" || pattern.Name == "files" {
 			if err := storage.UploadDirToS3(s3Bucket, fmt.Sprintf("%s/fb_archives/%s", dataOwner, task.Archive.ID), subDir); err != nil {
-				return err
+				sentry.CaptureException(err)
+				continue
 			}
 		} else {
 			files, err := pattern.SelectFiles(fs, subDir)
 			if err != nil {
+				sentry.CaptureException(err)
 				return err
 			}
 			for _, file := range files {
 				data, err := afero.ReadFile(fs, file)
 				if err != nil {
+					sentry.CaptureException(err)
 					return err
 				}
 
 				if err := pattern.Validate(data); err != nil {
+					sentry.CaptureException(err)
 					return err
 				}
 
@@ -109,6 +116,7 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 					if err := gormbulk.BulkInsert(db, rawFriends.ORM(ts, dataOwner), 1000); err != nil {
 						// friends must exist for inserting tags
 						// stop processing if it fails to insert friends
+						sentry.CaptureException(err)
 						return err
 					}
 				case "posts":
@@ -116,6 +124,7 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 					json.Unmarshal(data, &rawPosts.Items)
 					posts, complexPosts := rawPosts.ORM(dataOwner, task.Archive.ID, &postID, &postMediaID, &placeID, &tagID)
 					if err := gormbulk.BulkInsert(db, posts, 1000); err != nil {
+						sentry.CaptureException(err)
 						continue
 					}
 					for _, p := range complexPosts {
@@ -124,6 +133,7 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 							if err := db.Where("data_owner_id = ?", dataOwner).Find(&friends).Error; err != nil {
 								// friends must exist for inserting tags
 								// deal with the next post if it fails to find friends of this data owner
+								sentry.CaptureException(err)
 								continue
 							}
 
@@ -145,6 +155,7 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 						}
 
 						if err := db.Create(&p).Error; err != nil {
+							sentry.CaptureException(err)
 							continue
 						}
 					}
@@ -152,12 +163,14 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 					rawComments := &facebook.RawComments{}
 					json.Unmarshal(data, &rawComments)
 					if err := gormbulk.BulkInsert(db, rawComments.ORM(ts, dataOwner), 1000); err != nil {
+						sentry.CaptureException(err)
 						continue
 					}
 				case "reactions":
 					rawReactions := &facebook.RawReactions{}
 					json.Unmarshal(data, &rawReactions)
 					if err := gormbulk.BulkInsert(db, rawReactions.ORM(ts, dataOwner), 1000); err != nil {
+						sentry.CaptureException(err)
 						continue
 					}
 				}
@@ -193,7 +206,6 @@ func main() {
 
 		status := storage.TaskStatusFinished
 		if err != nil {
-			sentry.CaptureException(err)
 			status = storage.TaskStatusFailed
 		}
 
