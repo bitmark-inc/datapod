@@ -8,7 +8,6 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/jinzhu/gorm"
-	"github.com/mholt/archiver"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/afero"
 	"github.com/t-tiger/gorm-bulk-insert"
@@ -39,10 +38,19 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 	contextLogger := log.WithFields(log.Fields{"task_id": task.ID})
 	contextLogger.Info("task started")
 
+	// the layout of the local dir for this task:
+	// <data-owner> /
+	//		archive/
+	//			<archive-file-name>.zip
+	// 		data/
+	// 			about_you/
+	// 			ads_and_businesses/
+	// 			and more...
 	dataOwner := task.Archive.DataOwnerID
 	dataOwnerDir := filepath.Join(workingDir, dataOwner)
 	archiveDir := filepath.Join(dataOwnerDir, "archive")
-	archivePath := filepath.Join(archiveDir, filepath.Base(task.Archive.File))
+	archiveName := filepath.Base(task.Archive.File)
+	archivePath := filepath.Join(archiveDir, archiveName)
 	dataDir := filepath.Join(dataOwnerDir, "data")
 
 	fs := afero.NewOsFs()
@@ -58,11 +66,6 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 	}
 	contextLogger.Info("archive downloaded")
 
-	if err := archiver.Unarchive(archivePath, dataDir); err != nil {
-		return err
-	}
-	contextLogger.Info("archive unzipped")
-
 	ts := parseTime.UnixNano() / int64(time.Millisecond) // in milliseconds
 	postID := int(ts) * 1000000
 	postMediaID := int(ts) * 1000000
@@ -71,6 +74,10 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 
 	for _, pattern := range patterns {
 		contextLogger.WithField("type", pattern.Name).Info("parsing and inserting records into db")
+
+		if err := storage.ExtractArchive(archivePath, pattern.Location, dataDir); err != nil {
+			return err
+		}
 
 		subDir := filepath.Join(dataDir, pattern.Location)
 		files, err := pattern.SelectFiles(fs, subDir)
@@ -147,6 +154,8 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 				}
 			}
 		}
+
+		fs.RemoveAll(subDir)
 	}
 
 	contextLogger.Info("task finished")

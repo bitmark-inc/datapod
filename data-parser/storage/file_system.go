@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"compress/flate"
 	"os"
 	"path/filepath"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/mholt/archiver"
 	"github.com/spf13/afero"
 )
 
@@ -38,4 +40,16 @@ func DownloadArchive(bucket, key string, file *os.File) error {
 		return err
 	}
 	return nil
+}
+
+func ExtractArchive(source, target, destination string) error {
+	z := archiver.Zip{
+		CompressionLevel:       flate.DefaultCompression,
+		MkdirAll:               true,
+		SelectiveCompression:   true,
+		ContinueOnError:        false,
+		OverwriteExisting:      false,
+		ImplicitTopLevelFolder: false,
+	}
+	return z.Extract(source, target, destination)
 }
