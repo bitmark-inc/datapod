@@ -16,6 +16,8 @@ var (
 	PostsPattern     = Pattern{Name: "posts", Location: "posts", Regexp: regexp.MustCompile("your_posts(?P<index>_[0-9]+).json"), Schema: PostArraySchemaLoader()}
 	ReactionsPattern = Pattern{Name: "reactions", Location: "likes_and_reactions", Regexp: regexp.MustCompile("posts_and_comments.json"), Schema: ReactionSchemaLoader()}
 	CommentsPattern  = Pattern{Name: "comments", Location: "comments", Regexp: regexp.MustCompile("comments.json"), Schema: CommentArraySchemaLoader()}
+	MediaPattern     = Pattern{Name: "media", Location: "photos_and_videos"}
+	FilesPattern     = Pattern{Name: "files", Location: "files"}
 )
 
 type Pattern struct {

@@ -1,6 +1,7 @@
 package facebook
 
 import (
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -76,7 +77,7 @@ type RawPosts struct {
 	Items []*RawPost
 }
 
-func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID *int, tagID *int) ([]interface{}, []Post) {
+func (r *RawPosts) ORM(dataOwner, archiveID string, postID *int, postMediaID *int, placeID *int, tagID *int) ([]interface{}, []Post) {
 	posts := make([]interface{}, 0)
 	complexPosts := make([]Post, 0)
 
@@ -106,9 +107,10 @@ func (r *RawPosts) ORM(dataOwner string, postID *int, postMediaID *int, placeID 
 			for _, item := range a.Data {
 				if item.Media != nil {
 					post.MediaAttached = true
+					uri := fmt.Sprintf("%s/fb_archives/%s/%s", dataOwner, archiveID, string(item.Media.URI))
 					postMedia := PostMedia{
 						PMID:              *postMediaID,
-						MediaURI:          string(item.Media.URI),
+						MediaURI:          uri,
 						FilenameExtension: filepath.Ext(string(item.Media.URI)),
 						DataOwnerID:       dataOwner,
 					}

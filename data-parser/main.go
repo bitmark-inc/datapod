@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,6 +23,8 @@ var patterns = []facebook.Pattern{
 	facebook.PostsPattern,
 	facebook.ReactionsPattern,
 	facebook.CommentsPattern,
+	facebook.MediaPattern,
+	facebook.FilesPattern,
 }
 
 func init() {
@@ -61,7 +64,7 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 	defer file.Close()
 	defer fs.RemoveAll(dataOwnerDir)
 
-	if err := storage.DownloadArchive(s3Bucket, task.Archive.File, file); err != nil {
+	if err := storage.DownloadArchiveFromS3(s3Bucket, task.Archive.File, file); err != nil {
 		return err
 	}
 	contextLogger.Info("archive downloaded")
@@ -80,77 +83,83 @@ func handle(db *gorm.DB, s3Bucket, workingDir string, task *storage.Task, parseT
 		}
 
 		subDir := filepath.Join(dataDir, pattern.Location)
-		files, err := pattern.SelectFiles(fs, subDir)
-		if err != nil {
-			return err
-		}
-		for _, file := range files {
-			data, err := afero.ReadFile(fs, file)
+		if pattern.Name == "media" || pattern.Name == "files" {
+			if err := storage.UploadDirToS3(s3Bucket, fmt.Sprintf("%s/fb_archives/%s", dataOwner, task.Archive.ID), subDir); err != nil {
+				return err
+			}
+		} else {
+			files, err := pattern.SelectFiles(fs, subDir)
 			if err != nil {
 				return err
 			}
-
-			if err := pattern.Validate(data); err != nil {
-				return err
-			}
-
-			switch pattern.Name {
-			case "friends":
-				rawFriends := &facebook.RawFriends{}
-				json.Unmarshal(data, &rawFriends)
-				if err := gormbulk.BulkInsert(db, rawFriends.ORM(ts, dataOwner), 1000); err != nil {
-					// friends must exist for inserting tags
-					// stop processing if it fails to insert friends
+			for _, file := range files {
+				data, err := afero.ReadFile(fs, file)
+				if err != nil {
 					return err
 				}
-			case "posts":
-				rawPosts := facebook.RawPosts{Items: make([]*facebook.RawPost, 0)}
-				json.Unmarshal(data, &rawPosts.Items)
-				posts, complexPosts := rawPosts.ORM(dataOwner, &postID, &postMediaID, &placeID, &tagID)
-				if err := gormbulk.BulkInsert(db, posts, 1000); err != nil {
-					continue
+
+				if err := pattern.Validate(data); err != nil {
+					return err
 				}
-				for _, p := range complexPosts {
-					if len(p.Tags) > 0 {
-						friends := make([]facebook.FriendORM, 0)
-						if err := db.Where("data_owner_id = ?", dataOwner).Find(&friends).Error; err != nil {
-							// friends must exist for inserting tags
-							// deal with the next post if it fails to find friends of this data owner
-							continue
-						}
 
-						friendIDs := make(map[string]int)
-						for _, f := range friends {
-							friendIDs[f.FriendName] = f.PKID
-						}
-
-						// FIXME: non-friends couldn't be tagged
-						c := 0 // valid tag count
-						for i := range p.Tags {
-							friendID, ok := friendIDs[p.Tags[i].Name]
-							if ok {
-								p.Tags[i].FriendID = friendID
-								c++
-							}
-						}
-						p.Tags = p.Tags[:c]
+				switch pattern.Name {
+				case "friends":
+					rawFriends := &facebook.RawFriends{}
+					json.Unmarshal(data, &rawFriends)
+					if err := gormbulk.BulkInsert(db, rawFriends.ORM(ts, dataOwner), 1000); err != nil {
+						// friends must exist for inserting tags
+						// stop processing if it fails to insert friends
+						return err
 					}
-
-					if err := db.Create(&p).Error; err != nil {
+				case "posts":
+					rawPosts := facebook.RawPosts{Items: make([]*facebook.RawPost, 0)}
+					json.Unmarshal(data, &rawPosts.Items)
+					posts, complexPosts := rawPosts.ORM(dataOwner, task.Archive.ID, &postID, &postMediaID, &placeID, &tagID)
+					if err := gormbulk.BulkInsert(db, posts, 1000); err != nil {
 						continue
 					}
-				}
-			case "comments":
-				rawComments := &facebook.RawComments{}
-				json.Unmarshal(data, &rawComments)
-				if err := gormbulk.BulkInsert(db, rawComments.ORM(ts, dataOwner), 1000); err != nil {
-					continue
-				}
-			case "reactions":
-				rawReactions := &facebook.RawReactions{}
-				json.Unmarshal(data, &rawReactions)
-				if err := gormbulk.BulkInsert(db, rawReactions.ORM(ts, dataOwner), 1000); err != nil {
-					continue
+					for _, p := range complexPosts {
+						if len(p.Tags) > 0 {
+							friends := make([]facebook.FriendORM, 0)
+							if err := db.Where("data_owner_id = ?", dataOwner).Find(&friends).Error; err != nil {
+								// friends must exist for inserting tags
+								// deal with the next post if it fails to find friends of this data owner
+								continue
+							}
+
+							friendIDs := make(map[string]int)
+							for _, f := range friends {
+								friendIDs[f.FriendName] = f.PKID
+							}
+
+							// FIXME: non-friends couldn't be tagged
+							c := 0 // valid tag count
+							for i := range p.Tags {
+								friendID, ok := friendIDs[p.Tags[i].Name]
+								if ok {
+									p.Tags[i].FriendID = friendID
+									c++
+								}
+							}
+							p.Tags = p.Tags[:c]
+						}
+
+						if err := db.Create(&p).Error; err != nil {
+							continue
+						}
+					}
+				case "comments":
+					rawComments := &facebook.RawComments{}
+					json.Unmarshal(data, &rawComments)
+					if err := gormbulk.BulkInsert(db, rawComments.ORM(ts, dataOwner), 1000); err != nil {
+						continue
+					}
+				case "reactions":
+					rawReactions := &facebook.RawReactions{}
+					json.Unmarshal(data, &rawReactions)
+					if err := gormbulk.BulkInsert(db, rawReactions.ORM(ts, dataOwner), 1000); err != nil {
+						continue
+					}
 				}
 			}
 		}
