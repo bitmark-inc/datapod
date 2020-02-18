@@ -29,7 +29,6 @@ func GetNextRunningTask(db *gorm.DB) (*Task, error) {
 	}
 
 	query := dbTx.
-		Set("gorm:query_option", "FOR UPDATE").
 		Preload("Archive").
 		Table("tasks_task").
 		Select("DISTINCT ON (data_owner_id) id, data_owner_id, archive_id").
