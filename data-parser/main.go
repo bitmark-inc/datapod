@@ -12,7 +12,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/afero"
 	"github.com/t-tiger/gorm-bulk-insert"
-	_ "github.com/viant/afsc/s3"
 
 	"github.com/bitmark-inc/datapod/data-parser/schema/facebook"
 	"github.com/bitmark-inc/datapod/data-parser/storage"
