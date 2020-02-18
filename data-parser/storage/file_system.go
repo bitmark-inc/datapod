@@ -23,7 +23,10 @@ var (
 
 func init() {
 	// TODO: could the regsion set from environment variable?
-	sess := session.New(&aws.Config{Region: aws.String(endpoints.ApNortheast1RegionID)})
+	sess, err := session.NewSession(&aws.Config{Region: aws.String(endpoints.ApNortheast1RegionID)})
+	if err != nil {
+		panic(err)
+	}
 	uploader = s3manager.NewUploader(sess)
 	downloader = s3manager.NewDownloader(sess)
 }
