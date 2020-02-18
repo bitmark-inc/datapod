@@ -1,7 +1,9 @@
 package storage
 
 import (
-	"compress/flate"
+	"archive/zip"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"github.com/mholt/archiver"
 	"github.com/spf13/afero"
 )
 
@@ -127,22 +128,60 @@ func CreateFile(fs afero.Fs, path string) (*os.File, error) {
 	return os.Create(path)
 }
 
+func ExtractArchive(source, target, destination string) error {
+	r, err := zip.OpenReader(source)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if within(target, f.Name) {
+			fpath := filepath.Join(destination, f.Name)
+
+			// check for Zip Slip vulnerability: http://bit.ly/2MsjAWE
+			if !strings.HasPrefix(fpath, filepath.Clean(destination)+string(os.PathSeparator)) {
+				return fmt.Errorf("zip slip detected")
+			}
+
+			if f.FileInfo().IsDir() {
+				if err := os.MkdirAll(fpath, os.ModePerm); err != nil {
+					return err
+				}
+				continue
+			}
+
+			if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+				return err
+			}
+
+			outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+			if err != nil {
+				return err
+			}
+
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+
+			_, err = io.Copy(outFile, rc)
+
+			outFile.Close()
+			rc.Close()
+
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func within(parent, sub string) bool {
 	rel, err := filepath.Rel(parent, sub)
 	if err != nil {
 		return false
 	}
 	return !strings.Contains(rel, "..")
-}
-
-func ExtractArchive(source, target, destination string) error {
-	z := archiver.Zip{
-		CompressionLevel:       flate.DefaultCompression,
-		MkdirAll:               true,
-		SelectiveCompression:   true,
-		ContinueOnError:        false,
-		OverwriteExisting:      false,
-		ImplicitTopLevelFolder: false,
-	}
-	return z.Extract(source, target, destination)
 }
