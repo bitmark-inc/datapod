@@ -26,6 +26,7 @@ var bitsocialToken string
 var bitsocialAPIEndpoint string
 var bitsocialBucket string
 
+// cleanS3Folder removes all files under a given data owner
 func cleanS3Folder(dataOwner string) error {
 	if dataOwner == "" {
 		return fmt.Errorf("invalid data owner")
@@ -65,6 +66,8 @@ func cleanS3Folder(dataOwner string) error {
 
 }
 
+// removeDataOwner will submit a request to backend for remove all related
+// DB records for a data owner.
 func removeDataOwner(dataOwner string) error {
 	req, _ := http.NewRequest(
 		"DELETE",
@@ -172,5 +175,4 @@ func main() {
 		rows.Close()
 		time.Sleep(10 * time.Second)
 	}
-
 }
