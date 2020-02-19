@@ -12,7 +12,5 @@ require (
 	github.com/stretchr/testify v1.4.0
 	github.com/t-tiger/gorm-bulk-insert v1.3.0
 	github.com/xeipuuv/gojsonschema v1.2.0
-	golang.org/x/sync v0.0.0-20190227155943-e225da77a7e6 // indirect
 	golang.org/x/text v0.3.2
-	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 )
