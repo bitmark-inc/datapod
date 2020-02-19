@@ -100,7 +100,10 @@ func init() {
 		Environment: sentryEnv,
 	})
 
-	sess := session.New(&aws.Config{Region: aws.String(endpoints.ApNortheast1RegionID)})
+	sess, err := session.NewSession(&aws.Config{Region: aws.String(endpoints.ApNortheast1RegionID)})
+	if err != nil {
+		panic(err)
+	}
 	s3Svc = s3.New(sess)
 
 	httpClient = &http.Client{
