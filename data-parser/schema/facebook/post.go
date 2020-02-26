@@ -25,6 +25,7 @@ type Post struct {
 	EventStartTimestamp   int
 	EventEndTimestamp     int
 	MediaAttached         bool
+	Sentiment             string
 	DataOwnerID           string
 	MediaItems            []PostMedia `gorm:"foreignkey:PostID;association_foreignkey:PKID"`
 	Places                []Place     `gorm:"foreignkey:PostID;association_foreignkey:PKID"`
@@ -96,6 +97,7 @@ func (r *RawPosts) ORM(dataOwner, archiveID string, postID *int, postMediaID *in
 		for _, d := range rp.Data {
 			if d.Post != "" {
 				post.Post = string(d.Post)
+				post.Sentiment = sentiment(string(d.Post))
 			}
 			if d.UpdateTimestamp != 0 {
 				post.UpdateTimestamp = d.UpdateTimestamp
